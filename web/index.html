@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multitrack Audio Studio & Transcriber</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- Top Application Bar -->
+  <header>
+    <div class="brand-section">
+      <div class="brand-badge">
+        <svg class="brand-logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M12 2v20M17 5v14M7 8v8M22 10v4M2 10v4"/>
+        </svg>
+        <span class="brand-title">Multitrack Audio Studio</span>
+        <span class="version-tag">v4.5</span>
+      </div>
+    </div>
+
+    <!-- Campaign Mode Selector -->
+    <div class="segmented-control" id="campaignSwitcher">
+      <button class="seg-btn active sw5e" id="btnCampaignSw5e" onclick="switchCampaign('sw5e')">
+        Star Wars 5e
+      </button>
+      <button class="seg-btn red" id="btnCampaignRed" onclick="switchCampaign('red')">
+        Cyberpunk RED
+      </button>
+    </div>
+
+    <!-- System Hardware & Engine Telemetry -->
+    <div class="hardware-status">
+      <div class="hw-chip" id="chipGpu">
+        <span class="hw-indicator" id="dotGpu"></span>
+        <span id="textGpu">Detecting Hardware...</span>
+      </div>
+      <div class="hw-chip">
+        <span class="hw-indicator active"></span>
+        <span>RNNoise AI Engine</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Workspace Tabs -->
+  <nav class="workspace-tabs">
+    <div class="work-tab active" id="tabAutoMaster" onclick="switchTab('auto-master')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/>
+      </svg>
+      Multitrack Session Master
+    </div>
+    <div class="work-tab" id="tabTranscriber" onclick="switchTab('transcriber')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8"/>
+      </svg>
+      Speech Transcriber & Script Merger
+    </div>
+  </nav>
+
+  <!-- Main Workstation Canvas -->
+  <main>
+
+    <!-- ==================================================================== -->
+    <!-- TAB 1: AUTOMATED SESSION MASTER                                      -->
+    <!-- ==================================================================== -->
+    <div class="tab-pane active" id="paneAutoMaster">
+
+      <!-- Session Ingestion Toolbar (Replaces generic dropzone card) -->
+      <div class="session-bar" id="sessionBar">
+        <div class="session-bar-left">
+          <div class="session-icon-box">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+            </svg>
+          </div>
+          <div class="session-details">
+            <div class="session-title-row">
+              <span class="session-title" id="sessionNameDisplay">No Session Loaded</span>
+              <span class="version-tag" id="sessionTrackCountTag">0 Channels</span>
+            </div>
+            <span class="session-path" id="sessionPathDisplay">Drag and drop multitrack session folder or select audio tracks below</span>
+          </div>
+        </div>
+
+        <div class="session-bar-actions">
+          <button class="btn btn-secondary" onclick="browseFolder()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            Open Session Folder
+          </button>
+          <button class="btn btn-outline" onclick="browseFiles()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13M9 9l12-2M6 18a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 16a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/></svg>
+            Select Stems
+          </button>
+          <button class="btn btn-outline" onclick="clearSlots()">
+            Clear Rack
+          </button>
+        </div>
+      </div>
+
+      <!-- Precision DSP Calibration Telemetry Strip -->
+      <div class="telemetry-strip">
+        <div class="telemetry-group">
+          <div class="telemetry-item">
+            <span class="telemetry-label">Acoustic Calibration:</span>
+            <span class="telemetry-val highlight">Dynamic Cross-Track Bleed Matrix</span>
+          </div>
+          <div class="telemetry-item">
+            <span class="telemetry-label">Sample Rate:</span>
+            <span class="telemetry-val cyan">48,000 Hz (24-bit PCM)</span>
+          </div>
+          <div class="telemetry-item">
+            <span class="telemetry-label">Target Loudness:</span>
+            <span class="telemetry-val highlight">-18.0 LUFS Broadcast</span>
+          </div>
+        </div>
+        <div class="telemetry-group">
+          <div class="telemetry-item">
+            <span class="telemetry-label">Voice Leveling:</span>
+            <span class="telemetry-val">Adaptive Warmth & Presence</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 6-Channel Modular Audio Rack Grid -->
+      <div class="rack-header">
+        <div class="rack-title-row">
+          <span class="rack-title">Channel Mixer & Processing Rack</span>
+        </div>
+        <span class="rack-count" id="sessionSummaryText">0 / 6 Channels Active</span>
+      </div>
+
+      <div class="channels-grid" id="slotsGrid">
+        <!-- Rendered dynamically via app.js -->
+      </div>
+
+      <!-- Master Output Rack & Processing Parameters -->
+      <div class="master-settings-card">
+        <div class="control-field">
+          <div class="field-label-row">
+            <span class="field-label">Export Format</span>
+            <span class="field-metric" id="valFormat">MP3 320k</span>
+          </div>
+          <select class="input-select" id="selectFormat" onchange="updateSettings()">
+            <option value="MP3 (320 kbps Broadcast)">MP3 (320 kbps Broadcast CBR)</option>
+            <option value="WAV (24-bit Studio Master)">WAV (24-bit Studio Master PCM)</option>
+            <option value="FLAC (Lossless)">FLAC (Lossless Compression)</option>
+          </select>
+        </div>
+
+        <div class="control-field">
+          <div class="field-label-row">
+            <span class="field-label">Dialogue Loudness</span>
+            <span class="field-metric" id="valLufs">-18.0 LUFS</span>
+          </div>
+          <input type="range" class="input-slider" id="sliderLufs" min="-24" max="-14" step="0.5" value="-18" oninput="updateLufsLabel(this.value)" onchange="updateSettings()">
+        </div>
+
+        <div class="control-field">
+          <div class="field-label-row">
+            <span class="field-label">AI Denoise Level</span>
+            <span class="field-metric" id="valAiStrength">100%</span>
+          </div>
+          <input type="range" class="input-slider" id="sliderAi" min="0" max="100" step="5" value="100" oninput="updateAiLabel(this.value)" onchange="updateSettings()">
+        </div>
+
+        <div class="control-field">
+          <div class="field-label-row">
+            <span class="field-label">Master Output Directory</span>
+          </div>
+          <div style="display: flex; gap: 4px;">
+            <input type="text" class="input-text" id="inputOutputDir" placeholder="Auto-generated in session folder..." style="flex: 1;" readonly>
+            <button class="btn btn-outline" onclick="browseOutputDir()" style="padding: 0 8px;">Browse</button>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ==================================================================== -->
+    <!-- TAB 2: MULTITRACK TRANSCRIBER & SCRIPT MERGER                        -->
+    <!-- ==================================================================== -->
+    <div class="tab-pane" id="paneTranscriber">
+      <div class="master-settings-card" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
+        <div class="control-field">
+          <div class="field-label-row">
+            <span class="field-label">Whisper Model</span>
+            <span class="field-metric" id="valModel">Small (Recommended)</span>
+          </div>
+          <select class="input-select" id="selectModel" onchange="updateSettings()">
+            <option value="tiny">Tiny (Fastest, ~1GB VRAM)</option>
+            <option value="base">Base (Fast, ~1.5GB VRAM)</option>
+            <option value="small" selected>Small (Recommended — High Accuracy, ~2GB VRAM)</option>
+            <option value="medium">Medium (Studio Broadcast Quality, ~5GB VRAM)</option>
+            <option value="large-v3">Large-v3 (Maximum Accuracy, ~10GB VRAM)</option>
+          </select>
+        </div>
+
+        <div class="control-field">
+          <div class="field-label-row">
+            <span class="field-label">Turn Merge Window</span>
+            <span class="field-metric" id="valGap">1.2s</span>
+          </div>
+          <select class="input-select" id="selectGap" onchange="updateSettings()">
+            <option value="0.8">0.8s (Rapid Interjections)</option>
+            <option value="1.2" selected>1.2s (Conversational Flow)</option>
+            <option value="1.5">1.5s (Balanced Speech)</option>
+            <option value="2.0">2.0s (Longer Paragraphs)</option>
+          </select>
+        </div>
+
+        <div class="control-field">
+          <div class="field-label-row">
+            <span class="field-label">Context Vocabulary Prompt</span>
+          </div>
+          <input type="text" class="input-text" id="inputPrompt" style="width: 100%; font-size: 11px;" onchange="updateSettings()">
+        </div>
+
+        <div class="control-field" style="justify-content: flex-end;">
+          <div style="display: flex; gap: 14px; align-items: center; padding-bottom: 4px;">
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-secondary); font-size: 11px;">
+              <input type="checkbox" id="checkModeration" checked onchange="updateSettings()"> Moderation Log
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-secondary); font-size: 11px;">
+              <input type="checkbox" id="checkExportSrt" checked onchange="updateSettings()"> Subtitles (.SRT)
+            </label>
+            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; color: var(--text-secondary); font-size: 11px;">
+              <input type="checkbox" id="checkExportJson" onchange="updateSettings()"> JSON Timeline
+            </label>
+          </div>
+        </div>
+      </div>
+
+      <!-- Speaker Matrix -->
+      <div class="rack-header" style="margin-top: 6px;">
+        <span class="rack-title">Speaker Channels For Transcription</span>
+      </div>
+      <div class="channels-grid" id="transcribeSlotsGrid">
+        <!-- Rendered dynamically via app.js -->
+      </div>
+    </div>
+
+    <!-- Collapsible Live Studio Log Console -->
+    <div class="console-dock" id="consoleDock">
+      <div class="console-topbar">
+        <div class="console-heading">
+          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 17l6-6-6-6M12 19h8"/>
+          </svg>
+          DSP Engine Telemetry Log
+        </div>
+        <div style="display: flex; gap: 4px;">
+          <button class="btn btn-outline" onclick="copyConsoleLog()" style="height: 20px; font-size: 9px; padding: 0 6px;">Copy</button>
+          <button class="btn btn-outline" onclick="clearConsoleLog()" style="height: 20px; font-size: 9px; padding: 0 6px;">Clear</button>
+        </div>
+      </div>
+      <div class="console-body" id="consoleBody">
+        <div class="log-entry info">[SYSTEM] Studio DSP Engine online. Ready for session mastering.</div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Master Transport Bar (Bottom Docked Controller) -->
+  <footer class="transport-bar">
+    <div class="progress-track">
+      <div class="progress-bar-fill" id="progressFill"></div>
+    </div>
+
+    <div class="transport-controls">
+      <div class="transport-status-readout">
+        <span class="status-bullet idle" id="statusBullet"></span>
+        <span id="dockStatusText">Ready. Load a session folder or map audio channels above.</span>
+      </div>
+
+      <div class="transport-actions">
+        <button class="btn btn-outline" id="btnOpenFolder" onclick="openOutputFolder()" style="display: none;">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          Open Destination Folder
+        </button>
+        <button class="btn btn-secondary" id="btnPreview" onclick="startPreview()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          2-Min Preview
+        </button>
+        <button class="btn btn-primary" id="btnProcess" onclick="startMaster()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/></svg>
+          Master Session
+        </button>
+        <button class="btn btn-danger" id="btnCancel" onclick="cancelProcessing()" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/></svg>
+          Cancel
+        </button>
+      </div>
+    </div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

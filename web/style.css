@@ -1,0 +1,1005 @@
+/* ==========================================================================
+   MULTITRACK AUDIO STUDIO - PROFESSIONAL DAW WORKSTATION THEME
+   Bespoke, high-density audio engineering interface.
+   No emojis, no AI-slop neon glows, no promotional marketing fluff.
+   ========================================================================== */
+
+:root {
+  /* Matte Obsidian & Slate Surfaces */
+  --bg-app: #0d0f12;
+  --bg-panel: #13161c;
+  --bg-surface: #181c24;
+  --bg-surface-hover: #1e232d;
+  --bg-surface-active: #242a37;
+  --bg-inset: #090a0d;
+  --bg-meter: #101217;
+
+  /* Precision Hairline Borders */
+  --border-dim: #1e222b;
+  --border-subtle: #272d3a;
+  --border-strong: #384052;
+  --border-focus: #3b82f6;
+
+  /* Functional Studio Accent Signals */
+  --signal-green: #10b981;
+  --signal-green-dim: rgba(16, 185, 129, 0.15);
+  --signal-amber: #f59e0b;
+  --signal-amber-dim: rgba(245, 158, 11, 0.15);
+  --signal-cyan: #0ea5e9;
+  --signal-cyan-dim: rgba(14, 165, 233, 0.15);
+  --signal-red: #ef4444;
+  --signal-red-dim: rgba(239, 68, 68, 0.15);
+  --signal-purple: #8b5cf6;
+
+  /* High-Legibility Professional Typography */
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+  --text-dim: #475569;
+
+  --font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", "SFMono-Regular", Consolas, Menlo, monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+html, body {
+  background-color: var(--bg-app);
+  color: var(--text-primary);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.4;
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-app);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-subtle);
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
+
+/* ==========================================================================
+   TOP APPLICATION BAR
+   ========================================================================== */
+header {
+  height: 44px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  flex-shrink: 0;
+}
+
+.brand-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.brand-logo-icon {
+  width: 22px;
+  height: 22px;
+  fill: var(--signal-cyan);
+}
+
+.brand-title {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--text-primary);
+}
+
+.version-tag {
+  font-size: 9px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--text-muted);
+  background: var(--bg-inset);
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--border-dim);
+}
+
+/* Campaign Switcher */
+.segmented-control {
+  display: flex;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.seg-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 3px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.1s ease;
+}
+
+.seg-btn:hover {
+  color: var(--text-secondary);
+}
+
+.seg-btn.active.sw5e {
+  background: var(--bg-surface-active);
+  color: var(--signal-cyan);
+  border: 1px solid var(--border-strong);
+}
+
+.seg-btn.active.red {
+  background: var(--bg-surface-active);
+  color: var(--signal-red);
+  border: 1px solid var(--border-strong);
+}
+
+/* System Hardware & Status Chips */
+.hardware-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hw-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-secondary);
+  background: var(--bg-inset);
+  border: 1px solid var(--border-dim);
+  padding: 3px 8px;
+  border-radius: 3px;
+}
+
+.hw-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--signal-green);
+}
+
+.hw-indicator.active {
+  background: var(--signal-cyan);
+}
+
+/* ==========================================================================
+   WORKSPACE TABS
+   ========================================================================== */
+.workspace-tabs {
+  height: 36px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-dim);
+  display: flex;
+  padding: 0 16px;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.work-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 14px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.15s ease;
+}
+
+.work-tab:hover {
+  color: var(--text-primary);
+}
+
+.work-tab.active {
+  color: var(--signal-cyan);
+  border-bottom-color: var(--signal-cyan);
+  background: rgba(14, 165, 233, 0.04);
+}
+
+.work-tab svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ==========================================================================
+   MAIN WORKSPACE CANVAS
+   ========================================================================== */
+main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 20px 110px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.tab-pane {
+  display: none;
+}
+
+.tab-pane.active {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ==========================================================================
+   SESSION INGESTION TOOLBAR (REPLACES HUGE AI DROPZONE HERO)
+   ========================================================================== */
+.session-bar {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: 5px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.session-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.session-icon-box {
+  width: 32px;
+  height: 32px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-dim);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--signal-cyan);
+  flex-shrink: 0;
+}
+
+.session-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.session-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.session-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.session-path {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.session-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Professional Button Styles */
+.btn {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.1s ease;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+
+.btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+.btn:active {
+  transform: translateY(1px);
+}
+
+.btn-primary {
+  background: var(--signal-green);
+  color: #051a11;
+  border-color: rgba(0, 0, 0, 0.2);
+  font-weight: 700;
+}
+
+.btn-primary:hover {
+  background: #22c55e;
+}
+
+.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-secondary {
+  background: var(--bg-surface-active);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.btn-secondary:hover {
+  background: #2e3545;
+}
+
+.btn-outline {
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border-color: var(--border-subtle);
+}
+
+.btn-outline:hover {
+  background: var(--bg-surface-hover);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+
+.btn-danger {
+  background: var(--signal-red-dim);
+  color: var(--signal-red);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.btn-danger:hover {
+  background: var(--signal-red);
+  color: #ffffff;
+}
+
+.btn-danger:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* Drag-Drop Target Outline */
+.session-bar.drag-over {
+  border-color: var(--signal-cyan);
+  background: rgba(14, 165, 233, 0.05);
+}
+
+/* ==========================================================================
+   PRECISION TELEMETRY & DSP ENGINE STRIP
+   ========================================================================== */
+.telemetry-strip {
+  background: var(--bg-inset);
+  border: 1px solid var(--border-dim);
+  border-radius: 4px;
+  padding: 6px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.telemetry-group {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.telemetry-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.telemetry-label {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-dim);
+}
+
+.telemetry-val {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.telemetry-val.highlight {
+  color: var(--signal-green);
+}
+
+.telemetry-val.cyan {
+  color: var(--signal-cyan);
+}
+
+/* ==========================================================================
+   6-CHANNEL MODULAR AUDIO RACK GRID
+   ========================================================================== */
+.rack-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+}
+
+.rack-title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rack-title {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text-secondary);
+}
+
+.rack-count {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.channels-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 10px;
+}
+
+/* Individual Channel Strip Unit */
+.channel-strip {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.15s ease;
+  overflow: hidden;
+}
+
+.channel-strip:hover {
+  border-color: var(--border-strong);
+}
+
+.channel-strip.has-audio {
+  border-color: var(--border-strong);
+  background: #151820;
+}
+
+.channel-strip.disabled {
+  opacity: 0.45;
+}
+
+/* Strip Header */
+.strip-header {
+  height: 32px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border-dim);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+}
+
+.strip-id-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ch-badge {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 800;
+  background: var(--bg-inset);
+  color: var(--signal-cyan);
+  padding: 2px 5px;
+  border-radius: 2px;
+  border: 1px solid var(--border-dim);
+}
+
+.ch-name {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.ch-char-tag {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-inset);
+  padding: 1px 5px;
+  border-radius: 2px;
+}
+
+.strip-mute-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mute-btn {
+  background: var(--bg-inset);
+  border: 1px solid var(--border-dim);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  width: 22px;
+  height: 20px;
+  border-radius: 2px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.mute-btn.active {
+  background: var(--signal-green-dim);
+  color: var(--signal-green);
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.mute-btn.muted {
+  background: var(--signal-red-dim);
+  color: var(--signal-red);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+/* Strip Body */
+.strip-body {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Track File Info & Simulated Peak Meter */
+.strip-file-area {
+  background: var(--bg-inset);
+  border: 1px solid var(--border-dim);
+  border-radius: 3px;
+  padding: 6px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.strip-file-area:hover {
+  background: #0f1116;
+  border-color: var(--border-subtle);
+}
+
+.strip-file-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.file-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.file-info svg {
+  width: 12px;
+  height: 12px;
+  color: var(--signal-cyan);
+  flex-shrink: 0;
+}
+
+.file-text {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+}
+
+.file-text.empty {
+  color: var(--text-dim);
+  font-style: italic;
+  font-family: var(--font-ui);
+}
+
+.file-duration {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* Hardware-style Level Meter */
+.meter-rack {
+  height: 5px;
+  background: var(--bg-meter);
+  border-radius: 1px;
+  display: flex;
+  gap: 2px;
+  overflow: hidden;
+  padding: 1px;
+}
+
+.meter-segment {
+  flex: 1;
+  background: #1c222c;
+  border-radius: 1px;
+}
+
+.meter-segment.green.active {
+  background: #10b981;
+}
+
+.meter-segment.amber.active {
+  background: #f59e0b;
+}
+
+.meter-segment.red.active {
+  background: #ef4444;
+}
+
+/* DSP Profile Selector */
+.dsp-selector-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.dsp-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.dsp-select {
+  width: 100%;
+  height: 26px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-size: 11px;
+  font-family: var(--font-ui);
+  padding: 0 8px;
+  cursor: pointer;
+  outline: none;
+}
+
+.dsp-select:focus {
+  border-color: var(--signal-cyan);
+}
+
+/* DSP Stages Active Tags */
+.dsp-stages-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.dsp-tag {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  padding: 1px 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-dim);
+  color: var(--text-muted);
+}
+
+.dsp-tag.active {
+  color: var(--signal-cyan);
+  border-color: rgba(14, 165, 233, 0.25);
+  background: rgba(14, 165, 233, 0.08);
+}
+
+/* ==========================================================================
+   MASTER RACK CONTROLS & SETTINGS (HIGH DENSITY)
+   ========================================================================== */
+.master-settings-card {
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: 4px;
+  padding: 12px 16px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+
+.control-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.field-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.field-metric {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--signal-cyan);
+}
+
+.input-select {
+  height: 26px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-size: 11px;
+  padding: 0 8px;
+  outline: none;
+  cursor: pointer;
+}
+
+.input-select:focus {
+  border-color: var(--signal-cyan);
+}
+
+.input-slider {
+  -webkit-appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-subtle);
+  outline: none;
+  cursor: pointer;
+  margin: 6px 0;
+}
+
+.input-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--signal-cyan);
+  border: 2px solid var(--bg-panel);
+  cursor: pointer;
+}
+
+.input-text {
+  height: 26px;
+  background: var(--bg-inset);
+  border: 1px solid var(--border-subtle);
+  border-radius: 3px;
+  color: var(--text-primary);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  padding: 0 8px;
+  outline: none;
+}
+
+.input-text:focus {
+  border-color: var(--signal-cyan);
+}
+
+/* ==========================================================================
+   CONSOLE LOG DRAWER
+   ========================================================================== */
+.console-dock {
+  background: var(--bg-inset);
+  border: 1px solid var(--border-dim);
+  border-radius: 4px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.console-topbar {
+  height: 28px;
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border-dim);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+}
+
+.console-heading {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.console-body {
+  height: 110px;
+  overflow-y: auto;
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  background: #08090c;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.log-entry {
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: #8fa0b5;
+}
+
+.log-entry.info {
+  color: #38bdf8;
+}
+
+.log-entry.success {
+  color: #10b981;
+}
+
+.log-entry.warn {
+  color: #f59e0b;
+}
+
+.log-entry.error {
+  color: #ef4444;
+}
+
+/* ==========================================================================
+   MASTER TRANSPORT BAR (BOTTOM DOCKED CONTROLLER)
+   ========================================================================== */
+footer.transport-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: #11141a;
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+}
+
+.progress-track {
+  height: 3px;
+  background: var(--bg-inset);
+  width: 100%;
+  overflow: hidden;
+}
+
+.progress-bar-fill {
+  height: 100%;
+  width: 0%;
+  background: var(--signal-cyan);
+  transition: width 0.15s linear;
+}
+
+.transport-controls {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+}
+
+.transport-status-readout {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.status-bullet {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--signal-cyan);
+}
+
+.status-bullet.idle {
+  background: var(--text-dim);
+}
+
+.status-bullet.active {
+  background: var(--signal-green);
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0% { opacity: 0.6; }
+  50% { opacity: 1; }
+  100% { opacity: 0.6; }
+}
+
+.transport-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
