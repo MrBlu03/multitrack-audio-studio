@@ -660,17 +660,19 @@ class LaptopMicEnhancer:
         self,
         sr: int = 48000,
         noise_mag: Optional[np.ndarray] = None,
-        alpha: float = 1.2,
-        floor_db: float = -24.0,
+        alpha: float = 0.7,
+        floor_db: float = -18.0,
         desk_cut_db: float = -5.0,
         hollow_cut_db: float = -3.5,
         warmth_db: float = 2.5,
-        presence_db: float = 4.5
+        presence_db: float = 1.5,
+        expander_thresh_db: float = -48.0,
     ):
         self.sr = sr
         self.alpha = float(alpha)
         self.noise_mag = noise_mag
         self.floor_db = float(floor_db)
+        self.expander_thresh_db = float(expander_thresh_db)
         self.nperseg = 1024
         self.noverlap = 768
         self.margin = 4096
@@ -740,7 +742,7 @@ class LaptopMicEnhancer:
             rms_fr = np.sqrt(np.mean(np.lib.stride_tricks.as_strided(y_eq, shape=shape, strides=strides)**2, axis=1))
             rms_fr_db = 20.0 * np.log10(rms_fr + 1e-9)
 
-            gate_dec = rms_fr_db > -38.0
+            gate_dec = rms_fr_db > self.expander_thresh_db
             hold_fr = int(0.450 / 0.010)
             rel_fr = int(0.140 / 0.010)
 
@@ -1169,11 +1171,11 @@ class EnsembleVocalRestorer:
         if profile == "t1_room_echo":
             self.b_hp, self.a_hp = signal.butter(2, 75.0 / (sr/2), btype='highpass')
             self.zi_hp = signal.lfilter_zi(self.b_hp, self.a_hp)
-            self.b_w, self.a_w = biquad_shelf(+3.5, 180.0, True, sr)
+            self.b_w, self.a_w = biquad_shelf(+1.2, 180.0, True, sr)
             self.zi_w = signal.lfilter_zi(self.b_w, self.a_w)
-            self.b_p, self.a_p = biquad_peaking(-2.2, 2200.0, 1.4, sr)
-            self.zi_p = signal.lfilter_zi(self.b_p, self.a_p)
-            self.b_a, self.a_a = biquad_shelf(+3.0, 7500.0, False, sr)
+            self.b_p, self.a_p = None, None
+            self.zi_p = None
+            self.b_a, self.a_a = biquad_shelf(+1.5, 5000.0, False, sr)
             self.zi_a = signal.lfilter_zi(self.b_a, self.a_a)
             self.tail_g = 1.0
         elif profile == "t2_muffled":
@@ -1248,7 +1250,8 @@ class EnsembleVocalRestorer:
         if self.profile == "t1_room_echo":
             y, self.zi_hp = signal.lfilter(self.b_hp, self.a_hp, chunk, zi=self.zi_hp)
             y, self.zi_w = signal.lfilter(self.b_w, self.a_w, y, zi=self.zi_w)
-            y, self.zi_p = signal.lfilter(self.b_p, self.a_p, y, zi=self.zi_p)
+            if self.b_p is not None:
+                y, self.zi_p = signal.lfilter(self.b_p, self.a_p, y, zi=self.zi_p)
             y, self.zi_a = signal.lfilter(self.b_a, self.a_a, y, zi=self.zi_a)
             
             hop_g = int(0.005 * self.sr)
@@ -1259,34 +1262,25 @@ class EnsembleVocalRestorer:
             if n_fr > 0:
                 rms_fr = np.array([np.sqrt(np.mean(y[i*hop_g:i*hop_g+win_g]**2)) for i in range(n_fr)])
                 rms_db = 20.0 * np.log10(rms_fr + 1e-9)
-                # Only cut room-echo tails that are WELL below speech (-44 dBFS floor, not -24).
-                # Speech consonants regularly dip to -28..-35 dBFS — the old -24 threshold was
-                # carving into live speech and causing audible gain pumping / garbling.
-                tail_thresh_db = -44.0
-                tail_range_db  = 20.0   # fade from -44 to -64 dBFS → 0-to-1 ratio
-                tail_max_cut_db = -12.0 # max attenuation applied to pure silence/echo tails
+                tail_thresh_db = -46.0
+                tail_range_db  = 20.0   # fade from -46 to -66 dBFS → 0-to-1 ratio
+                tail_max_cut_db = -6.0  # gentle 6 dB attenuation to pure silence/echo tails (was harsh -12 dB)
                 ratio = np.clip((tail_thresh_db - rms_db) / tail_range_db, 0.0, 1.0)
                 gain_db = tail_max_cut_db * ratio
                 gain_lin = 10.0 ** (gain_db / 20.0)
                 gain_smooth = np.zeros_like(gain_lin)
-                # Attack 350 ms: only engage after sustained silence (genuine echo tail).
-                # Word gaps in conversation (~100-200 ms) are shorter than this TC so the
-                # compressor ignores them completely — fixes the "pumping on every pause" bug.
-                # Release 20 ms: snap back to unity gain the instant speech returns.
                 a_att = np.exp(-1.0 / (0.350 * frame_rate))
                 a_rel = np.exp(-1.0 / (0.020 * frame_rate))
                 for i in range(n_fr):
                     t_g = gain_lin[i]
                     if t_g < self.tail_g:
-                        # Gain decreasing: use slow attack so we don't snap into speech gaps
                         self.tail_g = a_att * self.tail_g + (1 - a_att) * t_g
                     else:
-                        # Gain recovering: use faster release so speech onset isn't clipped
                         self.tail_g = a_rel * self.tail_g + (1 - a_rel) * t_g
                     gain_smooth[i] = self.tail_g
                 sample_g = np.interp(np.arange(len(y)), np.arange(n_fr)*hop_g + win_g//2, gain_smooth)
                 y = y * np.clip(sample_g, 10.0 ** (tail_max_cut_db / 20.0), 1.0)
-            y = np.tanh(y * 1.10) / 1.10
+            y = np.clip(y, -0.98, 0.98)
 
         elif self.profile == "t2_muffled":
             y, self.zi_hp = signal.lfilter(self.b_hp, self.a_hp, chunk, zi=self.zi_hp)
@@ -1527,6 +1521,43 @@ def process_vocal_restoration_file(
     log_func(f"[+] Dialogue processing finished in {format_time(total_time)} ({total_sec/max(0.001, total_time):.1f}x real-time)!")
     log_func(f"[+] Output file saved: {final_output_path}")
     return True
+
+
+def calibrate_track_speech_floor(file_path: str, sr: int = 48000, scan_sec: float = 90.0) -> float:
+    """Measure the active dialogue speech level (RMS in dBFS) of a track.
+
+    Reads up to scan_sec of audio, applies an 80 Hz high-pass filter to reject DC/sub-rumble,
+    breaks into 100ms analysis frames, and calculates the 85th percentile of non-silent frames.
+    Returns estimated active dialogue level in dBFS, or -30.0 dBFS if indeterminate.
+    """
+    try:
+        if not os.path.isfile(file_path):
+            return -30.0
+        info = sf.info(file_path)
+        frames_to_read = min(info.frames, int(scan_sec * sr))
+        if frames_to_read <= 0:
+            return -30.0
+        data, _ = sf.read(file_path, frames=frames_to_read, dtype='float32')
+        if data.ndim > 1:
+            data = data[:, 0]
+        b_hp, a_hp = signal.butter(2, 80.0 / (sr / 2), btype='highpass')
+        data_hp = signal.lfilter(b_hp, a_hp, data)
+        frame_len = int(0.100 * sr)
+        n_frames = len(data_hp) // frame_len
+        if n_frames <= 0:
+            return -30.0
+        shape = (n_frames, frame_len)
+        strides = (data_hp.strides[0] * frame_len, data_hp.strides[0])
+        frames = np.lib.stride_tricks.as_strided(data_hp, shape=shape, strides=strides)
+        rms = np.sqrt(np.mean(frames.astype(np.float64)**2, axis=1)).astype(np.float32)
+        rms = rms[rms > 1e-4]
+        if len(rms) < 5:
+            return -30.0
+        p85_rms = float(np.percentile(rms, 85))
+        p85_db = 20.0 * np.log10(p85_rms + 1e-9)
+        return float(np.clip(p85_db, -60.0, -10.0))
+    except Exception:
+        return -30.0
 
 
 def calibrate_laptop_fan_noise(file_path: str, sr: int = 48000, scan_sec: float = 60.0) -> np.ndarray:
@@ -2075,8 +2106,15 @@ def process_automated_session(
         return {}
 
     os.makedirs(output_dir, exist_ok=True)
-    is_mp3 = export_format.lower().endswith("mp3")
-    ext = "mp3" if is_mp3 else "wav"
+    fmt_lower = export_format.lower()
+    is_mp3 = "mp3" in fmt_lower
+    is_flac = "flac" in fmt_lower
+    if is_mp3:
+        ext = "mp3"
+    elif is_flac:
+        ext = "flac"
+    else:
+        ext = "wav"
     out_results = {}
 
     ai_label = f"ENABLED ({int(ai_denoise_strength*100)}% RNNoise)" if apply_ai_denoise else "DISABLED"
@@ -2201,6 +2239,8 @@ def process_automated_session(
                 log_func(f"[-] Note: Direct FFmpeg pipe failed ({e}). Writing temporary WAV instead.")
                 temp_wav = final_out_path + ".temp.wav"
                 dst = sf.SoundFile(temp_wav, mode='w', samplerate=sr, channels=1, subtype='PCM_24' if sr <= 48000 else 'FLOAT')
+        elif is_flac:
+            dst = sf.SoundFile(final_out_path, mode='w', samplerate=sr, channels=1, format='FLAC', subtype='PCM_24')
         else:
             dst = sf.SoundFile(final_out_path, mode='w', samplerate=sr, channels=1, subtype='PCM_24' if sr <= 48000 else 'FLOAT')
 
@@ -2236,12 +2276,22 @@ def process_automated_session(
                             pass
                 temp_wav = None
 
+        # Adaptive dialogue gate thresholding based on measured speech level
+        track_speech_lvl = calibrate_track_speech_floor(in_path, sr=sr)
+        if track_speech_lvl < -30.0:
+            track_open_thresh = max(-50.0, min(open_thresh_db, track_speech_lvl - 8.0))
+            track_close_thresh = track_open_thresh - 8.0
+            log_func(f"    🎯 Adaptive Gating: Detected low-gain speech ({track_speech_lvl:.1f} dBFS) -> Gate threshold lowered to {track_open_thresh:.1f} dBFS")
+        else:
+            track_open_thresh = open_thresh_db
+            track_close_thresh = open_thresh_db - 10.0
+
         _LONG_HOLD_PROFILES = {"t6_laptop_fan", "t1_room_echo"}
         gate_hold_ms = 500.0 if profile_id in _LONG_HOLD_PROFILES else hold_ms
         silence_gate = DialogueSafeSilenceGate(
             sr=sr,
-            open_thresh_db=open_thresh_db,
-            close_thresh_db=open_thresh_db - 10.0,
+            open_thresh_db=track_open_thresh,
+            close_thresh_db=track_close_thresh,
             hold_ms=gate_hold_ms,
             rel_ms=120.0,
             lookahead_ms=30.0,
@@ -2319,12 +2369,13 @@ def process_automated_session(
                 enhancer = LaptopMicEnhancer(
                     sr=sr,
                     noise_mag=noise_mag,
-                    alpha=1.2,          # was 1.6 — reduced to cut musical noise artefacts
-                    floor_db=-24.0,
+                    alpha=0.7,
+                    floor_db=-18.0,
                     desk_cut_db=-5.0,
                     hollow_cut_db=-3.5,
                     warmth_db=2.5,
-                    presence_db=4.5
+                    presence_db=1.5,
+                    expander_thresh_db=min(-38.0, track_open_thresh - 4.0)
                 )
                 src = sf.SoundFile(in_path, mode='r')
                 try:
@@ -2439,6 +2490,8 @@ def process_automated_session(
                             os.remove(temp_norm_wav)
                         except Exception:
                             pass
+                elif is_flac:
+                    sf.write(final_out_path, norm_audio, s1_sr, format='FLAC', subtype='PCM_24')
                 else:
                     sf.write(final_out_path, norm_audio, s1_sr, subtype='PCM_24' if s1_sr <= 48000 else 'FLOAT')
             finally:
@@ -2487,6 +2540,16 @@ def process_automated_session(
         processed_s   = 0
         t_track_start = time.time()
 
+        # Adaptive dialogue gate thresholding based on measured speech level
+        track_speech_lvl = calibrate_track_speech_floor(in_path, sr=sr)
+        if track_speech_lvl < -30.0:
+            track_open_thresh = max(-50.0, min(open_thresh_db, track_speech_lvl - 8.0))
+            track_close_thresh = track_open_thresh - 8.0
+            _safe_log(f"    🎯 Adaptive Gating: Detected low-gain speech ({track_speech_lvl:.1f} dBFS) -> Gate threshold lowered to {track_open_thresh:.1f} dBFS")
+        else:
+            track_open_thresh = open_thresh_db
+            track_close_thresh = open_thresh_db - 10.0
+
         # Silence gate — per-thread instance (stateful, cannot be shared).
         # Profiles with short burst speaking patterns get a longer hold to prevent
         # the gate cycling on normal conversational pauses between bursts.
@@ -2494,8 +2557,8 @@ def process_automated_session(
         gate_hold_ms = 500.0 if profile_id in _LONG_HOLD_PROFILES else hold_ms
         silence_gate = DialogueSafeSilenceGate(
             sr=sr,
-            open_thresh_db=open_thresh_db,
-            close_thresh_db=open_thresh_db - 10.0,
+            open_thresh_db=track_open_thresh,
+            close_thresh_db=track_close_thresh,
             hold_ms=gate_hold_ms,
             rel_ms=120.0,
             lookahead_ms=30.0,
@@ -2504,7 +2567,7 @@ def process_automated_session(
 
         ai_suppressor = AIRNNoiseSuppressor(sr=sr, strength=ai_denoise_strength) if apply_ai_denoise else None
 
-        # Output sink — stage1 WAV if normalising, else direct MP3/WAV
+        # Output sink — stage1 WAV if normalising, else direct MP3/FLAC/WAV
         stage1_wav_p = None
         proc_p = None; dst_p = None; temp_wav_p = None
 
@@ -2522,6 +2585,9 @@ def process_automated_session(
                 temp_wav_p = final_out_path + ".temp.wav"
                 dst_p = sf.SoundFile(temp_wav_p, mode='w', samplerate=sr, channels=1,
                                      subtype='PCM_24' if sr <= 48000 else 'FLOAT')
+        elif is_flac:
+            dst_p = sf.SoundFile(final_out_path, mode='w', samplerate=sr, channels=1,
+                                 format='FLAC', subtype='PCM_24')
         else:
             dst_p = sf.SoundFile(final_out_path, mode='w', samplerate=sr, channels=1,
                                  subtype='PCM_24' if sr <= 48000 else 'FLOAT')
@@ -2542,9 +2608,10 @@ def process_automated_session(
             if profile_id == "t6_laptop_fan":
                 _safe_log("    Profiling laptop fan motor & chassis noise...")
                 noise_mag = calibrate_laptop_fan_noise(in_path, sr=sr)
-                enhancer  = LaptopMicEnhancer(sr=sr, noise_mag=noise_mag, alpha=1.2,
-                                              floor_db=-24.0, desk_cut_db=-5.0,
-                                              hollow_cut_db=-3.5, warmth_db=2.5, presence_db=4.5)
+                enhancer  = LaptopMicEnhancer(sr=sr, noise_mag=noise_mag, alpha=0.7,
+                                              floor_db=-18.0, desk_cut_db=-5.0,
+                                              hollow_cut_db=-3.5, warmth_db=2.5, presence_db=1.5,
+                                              expander_thresh_db=min(-38.0, track_open_thresh - 4.0))
                 src_p = sf.SoundFile(in_path, mode='r')
                 try:
                     while processed_s < max_samples:
@@ -2618,6 +2685,8 @@ def process_automated_session(
                         export_as_mp3(tnw, final_out_path, bitrate=mp3_bitrate)
                         try: os.remove(tnw)
                         except Exception: pass
+                    elif is_flac:
+                        sf.write(final_out_path, norm_audio, s1_sr, format='FLAC', subtype='PCM_24')
                     else:
                         sf.write(final_out_path, norm_audio, s1_sr, subtype='PCM_24' if s1_sr <= 48000 else 'FLOAT')
                 finally:

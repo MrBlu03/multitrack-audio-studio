@@ -86,6 +86,8 @@ function handleWsMessage(msg) {
       document.getElementById('dockStatusText').textContent = 'Processing finished successfully.';
       if (msg.output) {
         document.getElementById('btnOpenFolder').style.display = 'inline-flex';
+        const btnSend = document.getElementById('btnSendToTranscribe');
+        if (btnSend) btnSend.style.display = 'inline-flex';
       }
     } else {
       document.getElementById('dockStatusText').textContent = 'Processing failed: ' + (msg.message || 'Unknown error');
@@ -681,7 +683,8 @@ function updateLufsLabel(val) {
 }
 
 function updateAiLabel(val) {
-  document.getElementById('valAiStrength').textContent = `${val}%`;
+  const v = parseInt(val);
+  document.getElementById('valAiStrength').textContent = v === 0 ? '0% (Disabled)' : `${v}%`;
 }
 
 // ---------------------------------------------------------------------------
@@ -719,6 +722,16 @@ function copyConsoleLog() {
 // Drag and Drop Handling
 // ---------------------------------------------------------------------------
 function setupDragAndDrop() {
+  // Prevent WebView2 default file open/navigation on entire window
+  window.addEventListener('dragover', (e) => {
+    e.preventDefault();
+  }, false);
+  window.addEventListener('drop', (e) => {
+    if (!e.target.closest('#sessionBar')) {
+      e.preventDefault();
+    }
+  }, false);
+
   const bar = document.getElementById('sessionBar');
   if (!bar) return;
 
@@ -773,4 +786,25 @@ function setupDragAndDrop() {
     }
     browseFolder();
   });
+}
+
+// ---------------------------------------------------------------------------
+// Transcriber Handoff
+// ---------------------------------------------------------------------------
+async function sendMasteredToTranscribe() {
+  try {
+    const res = await fetch('/api/send-mastered-to-transcribe', { method: 'POST' });
+    const data = await res.json();
+    if (res.ok && data.state) {
+      appState = data.state;
+      switchTab('transcriber');
+      renderUI();
+      appendConsole(`[+] Imported ${data.imported} mastered stem(s) into Transcriber.`, 'info');
+      document.getElementById('dockStatusText').textContent = `Imported ${data.imported} mastered tracks into Transcriber.`;
+    } else {
+      appendConsole(`[-] Transcriber handoff failed: ${data.error || 'No stems found'}`, 'error');
+    }
+  } catch (err) {
+    console.error('Send to transcribe error:', err);
+  }
 }

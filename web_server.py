@@ -100,7 +100,7 @@ class SessionState:
         self.export_format = "MP3 (320 kbps Broadcast)"
         self.apply_silence_gate = True
         self.apply_ai_denoise = True
-        self.ai_denoise_strength = 1.0
+        self.ai_denoise_strength = 0.4
         self.apply_normalization = True
         self.target_lufs = -18.0
         
@@ -299,7 +299,9 @@ def update_settings(req: SettingsUpdateReq):
     if req.export_format is not None: state.export_format = req.export_format
     if req.apply_silence_gate is not None: state.apply_silence_gate = req.apply_silence_gate
     if req.apply_ai_denoise is not None: state.apply_ai_denoise = req.apply_ai_denoise
-    if req.ai_denoise_strength is not None: state.ai_denoise_strength = req.ai_denoise_strength
+    if req.ai_denoise_strength is not None:
+        state.ai_denoise_strength = req.ai_denoise_strength
+        state.apply_ai_denoise = req.ai_denoise_strength > 0.01
     if req.apply_normalization is not None: state.apply_normalization = req.apply_normalization
     if req.target_lufs is not None: state.target_lufs = req.target_lufs
     if req.whisper_model is not None: state.whisper_model = req.whisper_model
@@ -620,6 +622,59 @@ def cancel_processing():
     return {"status": "idle"}
 
 
+@app.post("/api/send-mastered-to-transcribe")
+def send_mastered_to_transcribe():
+    """Import finished/mastered audio files from output_dir into transcribe slots."""
+    master_dir = state.output_dir
+    cfg = state.config
+    imported = 0
+    
+    if master_dir and os.path.isdir(master_dir):
+        files = [os.path.join(master_dir, f) for f in os.listdir(master_dir) 
+                 if f.lower().endswith((".mp3", ".wav", ".flac", ".m4a"))]
+        
+        for slot_num in range(1, 7):
+            s_cfg = cfg["slots"].get(slot_num, {})
+            chosen_path = ""
+            aliases = s_cfg.get("aliases", ())
+            player = s_cfg.get("player", "").strip().lower()
+            
+            for fp in sorted(files):
+                fl = os.path.basename(fp).lower()
+                if (
+                    f"track_{slot_num}" in fl or
+                    f"track_a0{slot_num}" in fl or
+                    f"track_{slot_num:02d}" in fl or
+                    f"slot_{slot_num}" in fl or
+                    f"track{slot_num}" in fl or
+                    (player and player != "-" and player in fl) or
+                    any(alias in fl for alias in aliases)
+                ):
+                    chosen_path = fp
+                    break
+            
+            if chosen_path and os.path.isfile(chosen_path):
+                state.auto_slots[slot_num]["path"] = chosen_path
+                state.auto_slots[slot_num]["filename"] = os.path.basename(chosen_path)
+                state.auto_slots[slot_num]["active"] = s_cfg.get("active", True)
+                imported += 1
+            elif not state.auto_slots[slot_num]["path"]:
+                state.auto_slots[slot_num]["active"] = False
+
+    if imported > 0:
+        log_broadcast(f"[+] Loaded {imported} mastered track(s) into Transcriber matrix.")
+        if master_dir:
+            state.output_dir = os.path.join(master_dir, "Transcripts")
+        return {"status": "ok", "imported": imported, "state": get_state()}
+    else:
+        existing = sum(1 for s in range(1, 7) if state.auto_slots[s]["path"])
+        if existing > 0:
+            if master_dir:
+                state.output_dir = os.path.join(master_dir, "Transcripts")
+            return {"status": "ok", "imported": existing, "state": get_state()}
+        return JSONResponse({"error": "No mastered stems or session tracks found to transcribe."}, status_code=400)
+
+
 # ---------------------------------------------------------------------------
 # Background DSP Execution
 # ---------------------------------------------------------------------------
@@ -692,7 +747,7 @@ def start_master(req: StartMasterReq):
                 slots=active_slots,
                 output_dir=out_dir,
                 preview_sec=preview_sec,
-                export_format="mp3" if "mp3" in state.export_format.lower() else "wav",
+                export_format="flac" if "flac" in state.export_format.lower() else ("mp3" if "mp3" in state.export_format.lower() else "wav"),
                 apply_silence_gate=state.apply_silence_gate,
                 apply_ai_denoise=state.apply_ai_denoise,
                 ai_denoise_strength=state.ai_denoise_strength,
