@@ -402,20 +402,15 @@ class BleedGateGUI:
         for s in range(1, 7):
             s_cfg = cfg["slots"].get(s, {})
             self.auto_slots[s]["label_var"].set(s_cfg.get("label", f"Slot {s}:"))
-            if not self.auto_slots[s]["path_var"].get():
-                def_prof = s_cfg.get("profile_id", "t3_reference")
-                self.auto_slots[s]["prof_var"].set(profile_id_to_str(def_prof))
+            def_prof = s_cfg.get("profile_id", "t3_reference")
+            self.auto_slots[s]["prof_var"].set(profile_id_to_str(def_prof))
 
         # Update transcriber slots
         for s in range(1, 7):
             s_cfg = cfg["slots"].get(s, {})
             self.transcribe_slots[s]["label_var"].set(s_cfg.get("label", f"Slot {s}:"))
-            if not self.transcribe_slots[s]["path_var"].get():
-                self.transcribe_slots[s]["name_var"].set(s_cfg.get("speaker", f"Speaker {s}"))
-                self.transcribe_slots[s]["active_var"].set(s_cfg.get("active", True))
-            else:
-                if not s_cfg.get("active", True):
-                    self.transcribe_slots[s]["active_var"].set(False)
+            self.transcribe_slots[s]["name_var"].set(s_cfg.get("speaker", f"Speaker {s}"))
+            self.transcribe_slots[s]["active_var"].set(s_cfg.get("active", True))
 
         # Update transcription context prompt
         self.transcribe_prompt_var.set(cfg["prompt"])
@@ -1808,6 +1803,7 @@ class BleedGateGUI:
         else:
             self._start_transcription_processing(preview_sec)
 
+    def _start_auto_session_processing(self, preview_sec: Optional[float] = None):
         cfg = get_campaign_config(self.campaign_mode_var.get())
         slots_data = {}
         for slot_num in range(1, 7):

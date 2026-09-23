@@ -64,11 +64,19 @@ function handleWsMessage(msg) {
 
     appendConsole(msg.text, 'log');
   } else if (msg.type === 'progress') {
-    const p = msg.data;
+    const p = msg.data || msg;
     if (p && typeof p === 'object') {
-      const totalPct = p.total_pct || 0;
+      const totalPct = p.total_pct ?? p.total_percent ?? 0;
       document.getElementById('progressFill').style.width = `${totalPct}%`;
-      const statusText = `[TRACK ${p.track_idx}/${p.total_tracks}] ${p.track_name || ''} | ${p.pct?.toFixed(1) || 0}% | ${p.speed?.toFixed(1) || 1.0}x | ETA ${p.eta || '--:--'}`;
+      const trackIdx = p.track_idx ?? 1;
+      const totalTracks = p.total_tracks ?? p.num_tracks ?? 1;
+      const trackName = p.track_name || '';
+      const pct = (p.pct ?? p.track_percent ?? 0);
+      const pctStr = typeof pct === 'number' ? pct.toFixed(1) : pct;
+      const speed = p.speed ?? 1.0;
+      const spdStr = typeof speed === 'number' ? speed.toFixed(1) : speed;
+      const eta = p.eta || '--:--';
+      const statusText = `[TRACK ${trackIdx}/${totalTracks}] ${trackName} | ${pctStr}% | ${spdStr}x | ETA ${eta}`;
       document.getElementById('dockStatusText').textContent = statusText;
     }
   } else if (msg.type === 'finish') {
@@ -99,11 +107,14 @@ function handleWsMessage(msg) {
       document.getElementById('dockStatusText').textContent = `Video extraction failed: ${msg.error || 'Unknown error'}`;
     }
   } else if (msg.type === 'transcribe_progress') {
-    const d = msg.data;
+    const d = msg.data || msg;
     if (d && typeof d === 'object') {
-      const pct = d.progress_pct || 0;
+      const pct = d.progress_pct ?? d.percent ?? 0;
       document.getElementById('progressFill').style.width = `${pct}%`;
-      document.getElementById('dockStatusText').textContent = `[TRANSCRIBE ${d.track_idx}/${d.total_tracks}] ${d.speaker || ''} | ${pct.toFixed(1)}%`;
+      const trackIdx = d.track_idx ?? 1;
+      const totalTracks = d.total_tracks ?? d.num_tracks ?? 1;
+      const spk = d.speaker || '';
+      document.getElementById('dockStatusText').textContent = `[TRANSCRIBE ${trackIdx}/${totalTracks}] ${spk} | ${typeof pct === 'number' ? pct.toFixed(1) : pct}%`;
     }
   }
 }

@@ -425,9 +425,9 @@ def extract_video_audio_stems(
         cmd.extend(["-filter_complex", ";".join(filter_parts)])
 
         for i in range(num_channels):
-            slot = stream_to_slot.get(i, i + 1)
-            player_info = default_mapping.get(i, {})
-            player_name = player_info.get("player", f"Track_{i+1}")
+            default_info = default_mapping.get(i, {})
+            slot = (custom_track_mapping.get(i, default_info.get("slot", i + 1))) if custom_track_mapping else default_info.get("slot", i + 1)
+            player_name = default_info.get("player", f"Track_{i+1}")
             clean_name = re.sub(r'[^a-zA-Z0-9_\-]', '', player_name.replace(' ', '_'))
             
             out_filename = f"Track_{slot:02d}_{clean_name}.wav"
@@ -442,8 +442,20 @@ def extract_video_audio_stems(
             ])
 
     # Check if stems were already fully extracted previously
-    all_exist = all(os.path.isfile(p) and os.path.getsize(p) > 1024 for p in extracted_slots.values())
-    if all_exist and len(extracted_slots) > 0:
+    def _is_stem_valid(p: str, expected_dur: float) -> bool:
+        if not (os.path.isfile(p) and os.path.getsize(p) > 1024):
+            return False
+        if expected_dur > 1.0:
+            try:
+                import soundfile as sf
+                info = sf.info(p)
+                return abs(info.duration - expected_dur) < 2.0
+            except Exception:
+                return False
+        return True
+
+    all_exist = len(extracted_slots) > 0 and all(_is_stem_valid(p, total_duration) for p in extracted_slots.values())
+    if all_exist:
         log_func(f"[Video Ingest] All {len(extracted_slots)} stems already extracted in: {output_dir}")
         if progress_callback:
             progress_callback({

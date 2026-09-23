@@ -251,11 +251,10 @@ def set_campaign(req: CampaignSwitchReq):
         state.auto_slots[s]["player"] = s_cfg.get("player", f"Speaker {s}")
         state.auto_slots[s]["character"] = s_cfg.get("character", "")
         state.auto_slots[s]["speaker"] = s_cfg.get("speaker", f"Speaker {s}")
-        if not state.auto_slots[s]["path"]:
-            def_prof = s_cfg.get("profile_id", "t3_reference")
-            state.auto_slots[s]["profile_id"] = def_prof
-            state.auto_slots[s]["profile_name"] = profile_id_to_str(def_prof)
-            state.auto_slots[s]["active"] = s_cfg.get("active", True)
+        def_prof = s_cfg.get("profile_id", "t3_reference")
+        state.auto_slots[s]["profile_id"] = def_prof
+        state.auto_slots[s]["profile_name"] = profile_id_to_str(def_prof)
+        state.auto_slots[s]["active"] = s_cfg.get("active", True)
             
     log_broadcast(f"[⚡] Switched Campaign Mode: {state.config['icon']} {state.config['name']}")
     return get_state()
@@ -649,16 +648,23 @@ def start_master(req: StartMasterReq):
         def _prog(track_idx, num_tracks, out_fn, track_pct, total_pct, speed, eta_str, status_msg):
             state.progress_percent = round(total_pct, 1)
             state.status_message = f"[{track_idx}/{num_tracks}] {out_fn} ({track_pct:.1f}%) | Speed: {speed:.1f}x | ETA: {eta_str}"
-            ws_emit_sync({
-                "type": "progress",
+            p_payload = {
                 "track_idx": track_idx,
                 "num_tracks": num_tracks,
+                "total_tracks": num_tracks,
                 "track_name": out_fn,
                 "track_percent": round(track_pct, 1),
                 "total_percent": round(total_pct, 1),
+                "pct": round(track_pct, 1),
+                "total_pct": round(total_pct, 1),
                 "speed": round(speed, 1),
                 "eta": eta_str,
                 "status": state.status_message,
+            }
+            ws_emit_sync({
+                "type": "progress",
+                **p_payload,
+                "data": p_payload,
             })
             
         def _cancel():
@@ -709,9 +715,10 @@ def start_transcribe(req: StartMasterReq):
     tracks_config = []
     for s, info in state.auto_slots.items():
         if info["active"] and info["path"] and os.path.isfile(info["path"]):
+            spk = info.get("speaker") or info.get("player") or f"Speaker {s}"
             tracks_config.append({
                 "path": info["path"],
-                "speaker": info["speaker"],
+                "speaker": spk,
                 "active": True,
             })
             
