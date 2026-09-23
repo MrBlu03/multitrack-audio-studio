@@ -61,8 +61,8 @@ function handleWsMessage(msg) {
       renderUI();
     }
   } else if (msg.type === 'log') {
-
-    appendConsole(msg.text, 'log');
+    const txt = msg.text || msg.message || '';
+    if (txt) appendConsole(txt, 'log');
   } else if (msg.type === 'progress') {
     const p = msg.data || msg;
     if (p && typeof p === 'object') {
@@ -80,6 +80,7 @@ function handleWsMessage(msg) {
       document.getElementById('dockStatusText').textContent = statusText;
     }
   } else if (msg.type === 'finish') {
+    stopProgressPolling();
     if (msg.success) {
       document.getElementById('progressFill').style.width = '100%';
       document.getElementById('dockStatusText').textContent = 'Processing finished successfully.';
@@ -273,54 +274,145 @@ async function updateSettings() {
   }
 }
 
+let pollTimer = null;
+
+function startProgressPolling() {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    if (!isProcessing) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+      return;
+    }
+    try {
+      const res = await fetch('/api/state');
+      if (res.ok) {
+        const st = await res.json();
+        if (st.is_processing) {
+          const pct = st.progress_percent || 0;
+          document.getElementById('progressFill').style.width = `${pct}%`;
+          if (st.status_message) {
+            document.getElementById('dockStatusText').textContent = st.status_message;
+          }
+        } else if (isProcessing) {
+          setProcessingUI(false);
+          document.getElementById('progressFill').style.width = '100%';
+          document.getElementById('dockStatusText').textContent = st.status_message || 'Processing complete.';
+          if (st.last_output_file) {
+            document.getElementById('btnOpenFolder').style.display = 'inline-flex';
+          }
+          clearInterval(pollTimer);
+          pollTimer = null;
+        }
+      }
+    } catch (e) {
+      // Ignore transient polling fetch errors
+    }
+  }, 1000);
+}
+
+function stopProgressPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
 async function startMaster() {
   if (currentTab === 'transcriber') {
     startTranscribe();
     return;
   }
   setProcessingUI(true);
+  document.getElementById('progressFill').style.width = '0%';
+  document.getElementById('dockStatusText').textContent = 'Starting automated session mastering...';
+  appendConsole('[MASTER] Initializing automated session mastering...', 'info');
+
   try {
-    await fetch('/api/start-master', {
+    const res = await fetch('/api/start-master', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ preview_sec: null })
     });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      const errMsg = errData.error || `HTTP ${res.status}`;
+      document.getElementById('dockStatusText').textContent = `Mastering error: ${errMsg}`;
+      appendConsole(`[-] Failed to start mastering: ${errMsg}`, 'error');
+      setProcessingUI(false);
+    } else {
+      startProgressPolling();
+    }
   } catch (e) {
     console.error('Start master error:', e);
+    document.getElementById('dockStatusText').textContent = `Start error: ${e.message}`;
+    appendConsole(`[-] Network/request error starting master: ${e.message}`, 'error');
     setProcessingUI(false);
   }
 }
 
 async function startPreview() {
   setProcessingUI(true);
+  document.getElementById('progressFill').style.width = '0%';
+  document.getElementById('dockStatusText').textContent = 'Starting 2-minute preview mastering...';
+  appendConsole('[PREVIEW] Initializing 2-minute session preview run...', 'info');
+
   try {
-    await fetch('/api/start-master', {
+    const res = await fetch('/api/start-master', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ preview_sec: 120.0 })
     });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      const errMsg = errData.error || `HTTP ${res.status}`;
+      document.getElementById('dockStatusText').textContent = `Preview error: ${errMsg}`;
+      appendConsole(`[-] Failed to start preview: ${errMsg}`, 'error');
+      setProcessingUI(false);
+    } else {
+      startProgressPolling();
+    }
   } catch (e) {
     console.error('Start preview error:', e);
+    document.getElementById('dockStatusText').textContent = `Start error: ${e.message}`;
+    appendConsole(`[-] Network/request error starting preview: ${e.message}`, 'error');
     setProcessingUI(false);
   }
 }
 
 async function startTranscribe() {
   setProcessingUI(true);
+  document.getElementById('progressFill').style.width = '0%';
+  document.getElementById('dockStatusText').textContent = 'Starting multitrack AI transcription...';
+  appendConsole('[TRANSCRIBE] Initializing Whisper speech-to-text...', 'info');
+
   try {
-    await fetch('/api/start-transcribe', {
+    const res = await fetch('/api/start-transcribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ preview_sec: null })
     });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      const errMsg = errData.error || `HTTP ${res.status}`;
+      document.getElementById('dockStatusText').textContent = `Transcribe error: ${errMsg}`;
+      appendConsole(`[-] Failed to start transcribe: ${errMsg}`, 'error');
+      setProcessingUI(false);
+    } else {
+      startProgressPolling();
+    }
   } catch (e) {
     console.error('Start transcribe error:', e);
+    document.getElementById('dockStatusText').textContent = `Start error: ${e.message}`;
+    appendConsole(`[-] Network/request error starting transcribe: ${e.message}`, 'error');
     setProcessingUI(false);
   }
 }
 
 async function cancelProcessing() {
   try {
+    document.getElementById('dockStatusText').textContent = 'Cancelling processing...';
+    appendConsole('[-] User requested cancellation...', 'warn');
     await fetch('/api/cancel', { method: 'POST' });
   } catch (e) {
     console.error('Cancel error:', e);

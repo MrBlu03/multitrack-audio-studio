@@ -2017,8 +2017,8 @@ def auto_detect_session_tracks(source: Union[str, List[str]], mode: str = "sw5e"
 
 
 def process_automated_session(
-    slots: Dict[int, Union[str, Dict[str, any]]],
-    output_dir: str,
+    slots: Optional[Dict[int, Union[str, Dict[str, any]]]] = None,
+    output_dir: str = "",
     export_format: str = "mp3",
     mp3_bitrate: str = "320k",
     apply_silence_gate: bool = True,
@@ -2034,7 +2034,8 @@ def process_automated_session(
     chunk_sec: float = 30.0,
     progress_callback=None,
     cancel_check=None,
-    log_func=print
+    log_func=print,
+    **kwargs
 ) -> Dict[str, str]:
     """
     Automated multitrack session mastering orchestrator.
@@ -2050,7 +2051,8 @@ def process_automated_session(
     Optionally normalizes active speech loudness across all tracks (ITU-R BS.1770-4) with True Peak limiting.
     """
     active_slots = {}
-    for k, v in slots.items():
+    slots_dict = slots if slots is not None else kwargs.get("active_slots", {})
+    for k, v in slots_dict.items():
         if isinstance(v, dict):
             p = v.get("path")
             prof = v.get("profile", DEFAULT_SLOT_PROFILES.get(k, {}).get("id", "t3_reference"))
@@ -2095,11 +2097,20 @@ def process_automated_session(
     num_tracks        = len(sorted_slots)
     t_session_start   = time.time()
 
+    import threading, queue as _queue
+
+    # --- Thread-safe progress tracking across sequential and parallel workers ---
+    _prog_lock = threading.Lock()
+    _slot_progress: Dict[int, float] = {s: 0.0 for s in sorted_slots}
+
+    if progress_callback and num_tracks > 0:
+        first_fn = os.path.basename(active_slots[sorted_slots[0]]["path"])
+        progress_callback(1, num_tracks, first_fn, 0.0, 0.0, 1.0, "--:--", f"Initializing DSP pipeline for {num_tracks} tracks...")
+
     # Determine reference files for multitrack bleed gating
     all_raw_files = [active_slots[k]["path"] for k in sorted(active_slots.keys())]
 
     # --- Thread-safe logging ---
-    import threading, queue as _queue
     _log_queue: "queue.Queue[Optional[str]]" = _queue.Queue()
     _log_lock = threading.Lock()
 
@@ -2291,10 +2302,12 @@ def process_automated_session(
 
                         processed += len(final_chunk)
                         pct = (processed / max_samples) * 100.0
-                        total_pct = ((track_idx_0 + (processed / max_samples)) / num_tracks) * 100.0
                         elapsed = time.time() - t_track_start
                         speed = (processed / sr) / max(0.001, elapsed)
                         eta = (max_samples - processed) / (sr * max(0.1, speed))
+                        with _prog_lock:
+                            _slot_progress[slot_num] = pct
+                            total_pct = sum(_slot_progress.values()) / max(1, num_tracks)
                         if progress_callback:
                             progress_callback(track_idx_0 + 1, num_tracks, out_filename, pct, total_pct, speed, format_time(eta), f"Processing Slot {slot_num}: {out_filename}")
                 finally:
@@ -2339,10 +2352,12 @@ def process_automated_session(
 
                         processed += len(chunk)
                         pct = (processed / max_samples) * 100.0
-                        total_pct = ((track_idx_0 + (processed / max_samples)) / num_tracks) * 100.0
                         elapsed = time.time() - t_track_start
                         speed = (processed / sr) / max(0.001, elapsed)
                         eta = (max_samples - processed) / (sr * max(0.1, speed))
+                        with _prog_lock:
+                            _slot_progress[slot_num] = pct
+                            total_pct = sum(_slot_progress.values()) / max(1, num_tracks)
                         if progress_callback:
                             progress_callback(track_idx_0 + 1, num_tracks, out_filename, pct, total_pct, speed, format_time(eta), f"Processing Slot {slot_num}: {out_filename}")
                 finally:
@@ -2381,10 +2396,12 @@ def process_automated_session(
 
                         processed += len(chunk)
                         pct = (processed / max_samples) * 100.0
-                        total_pct = ((track_idx_0 + (processed / max_samples)) / num_tracks) * 100.0
                         elapsed = time.time() - t_track_start
                         speed = (processed / sr) / max(0.001, elapsed)
                         eta = (max_samples - processed) / (sr * max(0.1, speed))
+                        with _prog_lock:
+                            _slot_progress[slot_num] = pct
+                            total_pct = sum(_slot_progress.values()) / max(1, num_tracks)
                         if progress_callback:
                             progress_callback(track_idx_0 + 1, num_tracks, out_filename, pct, total_pct, speed, format_time(eta), f"Processing Slot {slot_num}: {out_filename}")
                 finally:
@@ -2542,12 +2559,14 @@ def process_automated_session(
                         final_chunk = ai_suppressor.process_chunk(gated) if ai_suppressor else gated
                         write_p(final_chunk)
                         processed_s += len(chunk)
+                        pct = (processed_s / max_samples) * 100.0
+                        elapsed = time.time() - t_track_start
+                        speed = (processed_s / sr) / max(0.001, elapsed)
+                        eta = (max_samples - processed_s) / (sr * max(0.1, speed))
+                        with _prog_lock:
+                            _slot_progress[p_slot_num] = pct
+                            total_pct = sum(_slot_progress.values()) / max(1, num_tracks)
                         if progress_callback:
-                            pct = (processed_s / max_samples) * 100.0
-                            total_pct = ((p_track_idx_0 + processed_s / max_samples) / num_tracks) * 100.0
-                            elapsed = time.time() - t_track_start
-                            speed = (processed_s / sr) / max(0.001, elapsed)
-                            eta = (max_samples - processed_s) / (sr * max(0.1, speed))
                             progress_callback(p_track_idx_0 + 1, num_tracks, out_filename, pct, total_pct, speed, format_time(eta), f"Processing Slot {p_slot_num}: {out_filename}")
                 finally:
                     src_p.close()
@@ -2569,12 +2588,14 @@ def process_automated_session(
                         write_p(final_chunk)
 
                         processed_s += len(chunk)
+                        pct = (processed_s / max_samples) * 100.0
+                        elapsed = time.time() - t_track_start
+                        speed = (processed_s / sr) / max(0.001, elapsed)
+                        eta = (max_samples - processed_s) / (sr * max(0.1, speed))
+                        with _prog_lock:
+                            _slot_progress[p_slot_num] = pct
+                            total_pct = sum(_slot_progress.values()) / max(1, num_tracks)
                         if progress_callback:
-                            pct = (processed_s / max_samples) * 100.0
-                            total_pct = ((p_track_idx_0 + processed_s / max_samples) / num_tracks) * 100.0
-                            elapsed = time.time() - t_track_start
-                            speed = (processed_s / sr) / max(0.001, elapsed)
-                            eta = (max_samples - processed_s) / (sr * max(0.1, speed))
                             progress_callback(p_track_idx_0 + 1, num_tracks, out_filename, pct, total_pct, speed, format_time(eta), f"Processing Slot {p_slot_num}: {out_filename}")
                 finally:
                     src_p.close()
@@ -2631,6 +2652,9 @@ def process_automated_session(
     log_func(f"✅ ALL {len(out_results)} SESSION TRACKS MASTERED SUCCESSFULLY IN {format_time(total_session_time)}!")
     log_func(f"Master Directory: {output_dir}")
     log_func("=" * 70)
+    if progress_callback and num_tracks > 0:
+        progress_callback(num_tracks, num_tracks, "Complete", 100.0, 100.0, 1.0, "00:00", f"All {len(out_results)} session tracks mastered successfully.")
+
     return out_results
 
 

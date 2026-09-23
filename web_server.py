@@ -129,13 +129,20 @@ class SessionState:
 
 state = SessionState()
 
+SERVER_EVENT_LOOP: Optional[asyncio.AbstractEventLoop] = None
+
+@app.on_event("startup")
+async def startup_event():
+    global SERVER_EVENT_LOOP
+    SERVER_EVENT_LOOP = asyncio.get_running_loop()
+
 
 # ---------------------------------------------------------------------------
 # WebSocket Broadcast Helper
 # ---------------------------------------------------------------------------
 async def broadcast_ws(data: Dict[str, Any]):
     disconnected = []
-    for client in state.active_clients:
+    for client in list(state.active_clients):
         try:
             await client.send_json(data)
         except Exception:
@@ -146,18 +153,28 @@ async def broadcast_ws(data: Dict[str, Any]):
 
 def ws_emit_sync(data: Dict[str, Any]):
     """Thread-safe synchronous emitter for background worker callbacks."""
-    try:
-        loop = asyncio.get_event_loop()
-        if loop.is_running():
+    global SERVER_EVENT_LOOP
+    loop = SERVER_EVENT_LOOP
+    if not loop or not loop.is_running():
+        try:
+            loop = asyncio.get_running_loop()
+        except Exception:
+            try:
+                loop = asyncio.get_event_loop()
+            except Exception:
+                loop = None
+
+    if loop and loop.is_running():
+        try:
             asyncio.run_coroutine_threadsafe(broadcast_ws(data), loop)
-    except Exception:
-        pass
+        except Exception as e:
+            print(f"[WS Error] Failed to schedule broadcast: {e}")
 
 
 def log_broadcast(msg: str):
     """Broadcast log line to WebSocket clients and stdout."""
     print(msg)
-    ws_emit_sync({"type": "log", "message": msg})
+    ws_emit_sync({"type": "log", "message": msg, "text": msg})
 
 
 # ---------------------------------------------------------------------------
@@ -672,7 +689,7 @@ def start_master(req: StartMasterReq):
             
         try:
             results = process_automated_session(
-                active_slots=active_slots,
+                slots=active_slots,
                 output_dir=out_dir,
                 preview_sec=preview_sec,
                 export_format="mp3" if "mp3" in state.export_format.lower() else "wav",
@@ -799,6 +816,8 @@ def start_transcribe(req: StartMasterReq):
 # ---------------------------------------------------------------------------
 @app.websocket("/ws/live")
 async def websocket_live(websocket: WebSocket):
+    global SERVER_EVENT_LOOP
+    SERVER_EVENT_LOOP = asyncio.get_running_loop()
     await websocket.accept()
     state.active_clients.append(websocket)
     try:
