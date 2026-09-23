@@ -1,5 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
+import os
 from PyInstaller.utils.hooks import collect_all
+
 
 datas = []
 binaries = []
@@ -73,6 +75,7 @@ hiddenimports += [
     'uvicorn.lifespan.on',
     'uvicorn.lifespan.off',
     'web_server',
+    'video_ingest',
 ]
 
 

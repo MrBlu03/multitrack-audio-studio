@@ -2052,11 +2052,19 @@ def process_automated_session(
         if isinstance(v, dict):
             p = v.get("path")
             prof = v.get("profile", DEFAULT_SLOT_PROFILES.get(k, {}).get("id", "t3_reference"))
+            player = v.get("player", "")
+            character = v.get("character", "")
         else:
             p = v
             prof = DEFAULT_SLOT_PROFILES.get(k, {}).get("id", "t3_reference")
+            player = ""
+            character = ""
+        if not player or player.startswith("Speaker"):
+            def_s = DEFAULT_SLOT_PROFILES.get(k, {})
+            if def_s.get("player") and def_s.get("player") != "-":
+                player = def_s.get("player")
         if p and os.path.isfile(p) and prof != "skip":
-            active_slots[k] = {"path": p, "profile": prof}
+            active_slots[k] = {"path": p, "profile": prof, "player": player, "character": character}
 
     if not active_slots:
         log_func("[-] No valid audio tracks found to process.")
@@ -2108,6 +2116,25 @@ def process_automated_session(
             return True
         return False
 
+    # --- Output filename generator with player name branding ---
+    def _make_mastered_filename(s_num: int, f_path: str, is_prev: bool) -> str:
+        base = os.path.splitext(os.path.basename(f_path))[0]
+        s_inf = active_slots.get(s_num, {})
+        plyr = s_inf.get("player", "").strip()
+        c_plyr = re.sub(r'[^a-zA-Z0-9_\-]', '', plyr.replace(' ', '_')) if plyr and plyr != "-" else ""
+
+        if c_plyr and c_plyr.lower() not in base.lower():
+            if re.match(r'^(?:track|ch|slot|audio_track|audiotrack)[_\-\s]*0?(\d+)$', base, re.IGNORECASE):
+                stem_name = f"Track_{s_num:02d}_{c_plyr}"
+            else:
+                stem_name = f"{base}_{c_plyr}"
+        else:
+            stem_name = base
+
+        if is_prev:
+            return f"{stem_name}_Mastered_Preview.{ext}"
+        return f"{stem_name}_Mastered.{ext}"
+
     # Step 1: bleed-gate slots sequentially (they share the AudioSource)
     for track_idx_0, slot_num in enumerate(bleed_gate_slots):
         if _cancel_check_thread():
@@ -2117,12 +2144,8 @@ def process_automated_session(
         slot_info = active_slots[slot_num]
         in_path = slot_info["path"]
         profile_id = slot_info["profile"]
-        base_name = os.path.splitext(os.path.basename(in_path))[0]
 
-        if preview_sec and preview_sec > 0:
-            out_filename = f"{base_name}_Mastered_Preview.{ext}"
-        else:
-            out_filename = f"{base_name}_Mastered.{ext}"
+        out_filename = _make_mastered_filename(slot_num, in_path, preview_sec and preview_sec > 0)
         final_out_path = os.path.join(output_dir, out_filename)
 
         log_func(f"\n[{track_idx_0 + 1}/{num_tracks}] Processing Slot {slot_num}: {os.path.basename(in_path)}")
@@ -2427,13 +2450,8 @@ def process_automated_session(
         slot_info    = active_slots[p_slot_num]
         in_path      = slot_info["path"]
         profile_id   = slot_info["profile"]
-        base_name    = os.path.splitext(os.path.basename(in_path))[0]
 
-        out_filename = (
-            f"{base_name}_Mastered_Preview.{ext}"
-            if (preview_sec and preview_sec > 0)
-            else f"{base_name}_Mastered.{ext}"
-        )
+        out_filename = _make_mastered_filename(p_slot_num, in_path, preview_sec and preview_sec > 0)
         final_out_path = os.path.join(output_dir, out_filename)
 
         _safe_log(f"\n[{p_track_idx_0 + 1}/{num_tracks}] Processing Slot {p_slot_num}: {os.path.basename(in_path)}")

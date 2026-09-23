@@ -568,7 +568,9 @@ def start_master(req: StartMasterReq):
         if info["active"] and info["path"] and os.path.isfile(info["path"]):
             active_slots[s] = {
                 "path": info["path"],
-                "profile": info["profile_id"]
+                "profile": info["profile_id"],
+                "player": info.get("player", ""),
+                "character": info.get("character", ""),
             }
             
     if not active_slots:

@@ -1693,14 +1693,22 @@ class BleedGateGUI:
         else:
             self._start_transcription_processing(preview_sec)
 
-    def _start_auto_session_processing(self, preview_sec: Optional[float] = None):
+        cfg = get_campaign_config(self.campaign_mode_var.get())
         slots_data = {}
         for slot_num in range(1, 7):
             p = self.auto_slots[slot_num]["path_var"].get().strip()
             prof_str = self.auto_slots[slot_num]["prof_var"].get().strip()
             prof_id = profile_str_to_id(prof_str)
+            s_cfg = cfg["slots"].get(slot_num, {})
+            player = s_cfg.get("player", f"Speaker {slot_num}")
+            character = s_cfg.get("character", "")
             if p and os.path.isfile(p) and prof_id != "skip":
-                slots_data[slot_num] = {"path": p, "profile": prof_id}
+                slots_data[slot_num] = {
+                    "path": p,
+                    "profile": prof_id,
+                    "player": player,
+                    "character": character
+                }
 
         if not slots_data:
             messagebox.showwarning("No Tracks to Process", "Please load session tracks first into the slots above.")
