@@ -32,3 +32,7 @@ models/
 # Logs & temp
 *.log
 scratch/
+inspect_history.py
+check_playlist_hist.py
+*_playlist.json
+innertube_*.json
