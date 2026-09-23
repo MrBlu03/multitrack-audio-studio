@@ -210,8 +210,14 @@ async function updateSlotProfile(slot, profile_id) {
     });
     if (appState && appState.slots && appState.slots[slot]) {
       appState.slots[slot].profile_id = profile_id;
+      const choices = appState.profile_choices || [];
+      const ch = choices.find(c => (typeof c === 'object' ? c.id : c) === profile_id);
+      if (ch) {
+        appState.slots[slot].profile_name = typeof ch === 'object' ? ch.name : ch;
+      }
       renderUI();
     }
+
   } catch (e) {
     console.error('Update slot profile error:', e);
   }
@@ -329,7 +335,10 @@ function getDspTags(profile_id) {
     't2_muffled': ['AIR SHELF', 'CLARITY EQ', 'AI DENOISE', '-18 LUFS'],
     't3_reference': ['STUDIO COMP', 'TRANSPARENT', 'AI DENOISE', '-18 LUFS'],
     't4_megaphone': ['DE-HARSH', 'WARMTH', 'AI DENOISE', '-18 LUFS'],
-    't7_rati_clarity': ['AIR LIFT', 'PRESENCE POLISH', 'AI DENOISE', '-18 LUFS']
+    't7_rati_clarity': ['AIR LIFT', 'PRESENCE POLISH', 'AI DENOISE', '-18 LUFS'],
+    'ai_rnnoise': ['RNNoise AI', 'VOICE ISOLATOR', 'TRANSPARENT EQ', '-18 LUFS'],
+    'silence_only': ['TRANSPARENT GATE', 'VOICE LEVELER', 'NO FILTER', '-18 LUFS'],
+    'skip': ['MUTED', 'BYPASS', 'INACTIVE']
   };
   return map[profile_id] || ['RESTORE EQ', 'AI DENOISE', '-18 LUFS'];
 }
@@ -381,9 +390,21 @@ function renderUI() {
     let profileOpts = '';
     const choices = appState.profile_choices || [];
     for (const ch of choices) {
-      const selected = (slot.profile_id === ch.id || slot.profile_name === ch.name) ? 'selected' : '';
-      profileOpts += `<option value="${ch.id}" ${selected}>${ch.name}</option>`;
+      let chId, chName;
+      if (typeof ch === 'object' && ch !== null) {
+        chId = ch.id;
+        chName = ch.name;
+      } else if (typeof ch === 'string') {
+        chName = ch;
+        chId = ch;
+      }
+      if (!chId) chId = chName;
+      if (!chName) chName = chId;
+
+      const selected = (slot.profile_id === chId || slot.profile_name === chName || slot.profile_id === chName) ? 'selected' : '';
+      profileOpts += `<option value="${chId}" ${selected}>${chName}</option>`;
     }
+
 
     // Active DSP pipeline stages tags
     const tags = getDspTags(slot.profile_id);

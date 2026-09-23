@@ -207,8 +207,9 @@ def get_state():
         "campaign_icon": state.config["icon"],
         "session_source_name": state.session_source_name,
         "slots": state.auto_slots,
-        "profile_choices": PROFILE_CHOICES,
+        "profile_choices": [{"id": profile_str_to_id(c), "name": c} for c in PROFILE_CHOICES],
         "output_dir": state.output_dir,
+
         "export_format": state.export_format,
         "apply_silence_gate": state.apply_silence_gate,
         "apply_ai_denoise": state.apply_ai_denoise,
