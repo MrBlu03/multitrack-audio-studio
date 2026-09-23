@@ -481,6 +481,107 @@ except Exception as e:
 
 
 # ---------------------------------------------------------------------------
+# 13. Direct 4K Raw Video Ingestion & 8-Track MeldStudio / OBS Stem Extraction
+# ---------------------------------------------------------------------------
+section("13. Direct 4K Raw Video Ingestion & Multi-Track Extraction")
+
+try:
+    import video_ingest
+    import subprocess
+    import soundfile as sf
+
+    # 1. Test video mapping configs
+    sw_map = video_ingest.get_default_video_track_mapping("sw5e", num_streams=8)
+    check("SW5E 8-stream mapping has 8 entries", len(sw_map) == 8)
+    check("SW5E T1 is mixdown (slot None)",       sw_map[0]["slot"] is None and sw_map[0]["role"] == "mixdown")
+    check("SW5E T2 is music (slot None)",         sw_map[1]["slot"] is None and sw_map[1]["role"] == "music")
+    check("SW5E T3 is Robin (slot 1)",            sw_map[2]["slot"] == 1 and sw_map[2]["player"] == "Robin")
+    check("SW5E T7 is Mathew (slot 5)",           sw_map[6]["slot"] == 5 and sw_map[6]["player"] == "Mathew")
+    check("SW5E T8 is Timmy (slot 6)",            sw_map[7]["slot"] == 6 and sw_map[7]["player"] == "Timmy")
+
+    red_map = video_ingest.get_default_video_track_mapping("red", num_streams=8)
+    check("RED 8-stream mapping has 8 entries",   len(red_map) == 8)
+    check("RED T3 is Robin (slot 1)",             red_map[2]["slot"] == 1 and red_map[2]["player"] == "Robin")
+    check("RED T4 is Blu GM (slot 2)",            red_map[3]["slot"] == 2 and red_map[3]["player"] == "Blu")
+    check("RED T5 is Rati (slot 4)",              red_map[4]["slot"] == 4 and red_map[4]["player"] == "Rati")
+    check("RED T6 is Marc (slot 3)",              red_map[5]["slot"] == 3 and red_map[5]["player"] == "Marc")
+    check("RED T7 is Timmy (slot 5)",             red_map[6]["slot"] == 5 and red_map[6]["player"] == "Timmy")
+    check("RED T8 is empty (slot 6 inactive)",    red_map[7]["active"] is False)
+
+    # 2. Synthetic multi-track video generation & single-pass extraction
+    with tempfile.TemporaryDirectory() as td:
+        syn_vid = os.path.join(td, "synthetic_meld_session.mp4")
+        
+        # Build 8 audio streams + 1 video stream synthetic test file
+        cmd_gen = [
+            "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
+            "-f", "lavfi", "-i", "color=c=black:s=320x240:d=2:r=24",
+            "-f", "lavfi", "-i", "sine=f=110:d=2",
+            "-f", "lavfi", "-i", "sine=f=220:d=2",
+            "-f", "lavfi", "-i", "sine=f=330:d=2",
+            "-f", "lavfi", "-i", "sine=f=440:d=2",
+            "-f", "lavfi", "-i", "sine=f=550:d=2",
+            "-f", "lavfi", "-i", "sine=f=660:d=2",
+            "-f", "lavfi", "-i", "sine=f=770:d=2",
+            "-f", "lavfi", "-i", "sine=f=880:d=2",
+            "-map", "0:v",
+            "-map", "1:a", "-map", "2:a", "-map", "3:a", "-map", "4:a",
+            "-map", "5:a", "-map", "6:a", "-map", "7:a", "-map", "8:a",
+            "-c:v", "libx264", "-c:a", "aac",
+            syn_vid
+        ]
+        
+        startupinfo = None
+        if sys.platform == "win32":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
+        subprocess.run(cmd_gen, capture_output=True, check=True, startupinfo=startupinfo)
+        check("Synthetic 8-stream video container generated", os.path.isfile(syn_vid))
+
+        # Probe video
+        probe = video_ingest.probe_video_streams(syn_vid)
+        check("probe_video_streams succeeded", probe.get("success") is True)
+        check("probe detected 8 audio streams", probe.get("num_audio_streams") == 8)
+
+        # Single-pass extraction (SW5E)
+        stems_dir = os.path.join(td, "stems_sw5e")
+        extracted = video_ingest.extract_video_audio_stems(
+            syn_vid,
+            output_dir=stems_dir,
+            campaign_mode="sw5e",
+            log_func=lambda s: None
+        )
+
+        check("SW5E extracted 6 vocal slots", len(extracted) == 6)
+        check("Music stem Track_Music.wav exported", os.path.isfile(os.path.join(stems_dir, "Track_Music.wav")))
+
+        all_valid = True
+        for slot_idx, wav_p in extracted.items():
+            if not os.path.isfile(wav_p):
+                all_valid = False
+                break
+            info = sf.info(wav_p)
+            if info.samplerate != 48000 or "24" not in info.subtype:
+                all_valid = False
+                break
+            data, _ = sf.read(wav_p, dtype="float32")
+            if len(data) == 0 or np.isnan(data).any() or np.isinf(data).any():
+                all_valid = False
+                break
+
+        check("All extracted stems are 24-bit PCM WAV (48 kHz) without NaN/Inf", all_valid)
+
+        # Test auto_detect_session_tracks integration
+        detected = mb.auto_detect_session_tracks(syn_vid, mode="sw5e")
+        check("mb.auto_detect_session_tracks handles video container directly", len(detected) == 6)
+
+except Exception as e:
+    check("Video ingestion tests raised no exception", False, str(e))
+    traceback.print_exc()
+
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 total = PASS + FAIL

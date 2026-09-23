@@ -76,6 +76,22 @@ function handleWsMessage(msg) {
       document.getElementById('dockStatusText').textContent = 'Processing failed: ' + (msg.message || 'Unknown error');
     }
     setProcessingUI(false);
+  } else if (msg.type === 'video_progress') {
+    const pct = msg.percent || 0;
+    document.getElementById('progressFill').style.width = `${pct}%`;
+    const speed = msg.speed ? `${msg.speed.toFixed(1)}x` : '~100x';
+    document.getElementById('dockStatusText').textContent = `[EXTRACTING 4K VIDEO] ${pct.toFixed(1)}% | ${speed} real-time`;
+  } else if (msg.type === 'video_extracted') {
+    if (msg.success) {
+      document.getElementById('progressFill').style.width = '100%';
+      document.getElementById('dockStatusText').textContent = `[VIDEO READY] Extracted ${msg.count} audio tracks into pristine 24-bit PCM stems.`;
+      if (msg.state) {
+        appState = msg.state;
+        renderUI();
+      }
+    } else {
+      document.getElementById('dockStatusText').textContent = `Video extraction failed: ${msg.error || 'Unknown error'}`;
+    }
   } else if (msg.type === 'transcribe_progress') {
     const d = msg.data;
     if (d && typeof d === 'object') {
@@ -110,6 +126,16 @@ async function switchCampaign(mode) {
     renderUI();
   } catch (e) {
     console.error('Failed to switch campaign:', e);
+  }
+}
+
+async function browseVideo() {
+  try {
+    const res = await fetch('/api/browse-video', { method: 'POST' });
+    appState = await res.json();
+    renderUI();
+  } catch (e) {
+    console.error('Browse video error:', e);
   }
 }
 
@@ -580,7 +606,35 @@ function setupDragAndDrop() {
     }, false);
   });
 
-  bar.addEventListener('drop', (e) => {
+  bar.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    bar.classList.remove('drag-over');
+
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      const firstFile = files[0];
+      const videoExts = ['.mkv', '.mp4', '.mov', '.webm', '.avi', '.m4v'];
+      const isVideo = videoExts.some(ext => firstFile.name.toLowerCase().endsWith(ext));
+
+      if (firstFile.path) {
+        if (isVideo) {
+          try {
+            document.getElementById('dockStatusText').textContent = `[INGESTING 4K VIDEO] ${firstFile.name}...`;
+            await fetch('/api/ingest-video', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ video_path: firstFile.path })
+            });
+            return;
+          } catch (err) {
+            console.error('Video drop ingest error:', err);
+          }
+        }
+      } else if (isVideo) {
+        browseVideo();
+        return;
+      }
+    }
     browseFolder();
   });
 }

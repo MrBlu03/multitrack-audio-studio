@@ -1912,7 +1912,19 @@ def auto_detect_session_tracks(source: Union[str, List[str]], mode: str = "sw5e"
     'source' can be a folder path or a list of file paths.
     """
     audio_exts = ('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.aiff', '.wma')
+    video_exts = ('.mkv', '.mp4', '.mov', '.m4v', '.avi', '.webm')
     candidate_paths = []
+
+    clean_mode = mode.lower().strip() if mode else "sw5e"
+    is_red = ("red" in clean_mode or "cyber" in clean_mode)
+
+    # Check if a single video container was passed directly
+    if isinstance(source, str) and os.path.isfile(source) and source.lower().endswith(video_exts):
+        try:
+            from video_ingest import extract_video_audio_stems
+            return extract_video_audio_stems(source, campaign_mode=clean_mode)
+        except Exception as e:
+            print(f"[-] Video extraction error: {e}")
 
     if isinstance(source, str):
         if os.path.isdir(source):
@@ -1920,18 +1932,31 @@ def auto_detect_session_tracks(source: Union[str, List[str]], mode: str = "sw5e"
                 full_p = os.path.join(source, entry)
                 if os.path.isfile(full_p) and entry.lower().endswith(audio_exts):
                     candidate_paths.append(full_p)
+            # If no audio files found in directory, check for video containers
+            if not candidate_paths:
+                vids = [os.path.join(source, e) for e in os.listdir(source) if os.path.isfile(os.path.join(source, e)) and e.lower().endswith(video_exts)]
+                if vids:
+                    try:
+                        from video_ingest import extract_video_audio_stems
+                        return extract_video_audio_stems(vids[0], campaign_mode=clean_mode)
+                    except Exception as e:
+                        print(f"[-] Video extraction error: {e}")
         elif os.path.isfile(source):
             candidate_paths = [source]
     elif isinstance(source, (list, tuple)):
         for item in source:
-            if isinstance(item, str) and item.lower().endswith(audio_exts):
-                candidate_paths.append(item)
+            if isinstance(item, str):
+                if item.lower().endswith(video_exts) and os.path.isfile(item):
+                    try:
+                        from video_ingest import extract_video_audio_stems
+                        return extract_video_audio_stems(item, campaign_mode=clean_mode)
+                    except Exception as e:
+                        print(f"[-] Video extraction error: {e}")
+                elif item.lower().endswith(audio_exts):
+                    candidate_paths.append(item)
 
     slots: Dict[int, str] = {}
     ignored_keywords = ('cleaned', 'enhanced', 'mastered', 'preview', 'temp', 'tuned', 'digital_silence', 'digitalsilence')
-
-    clean_mode = mode.lower().strip() if mode else "sw5e"
-    is_red = ("red" in clean_mode or "cyber" in clean_mode)
 
     if is_red:
         name_map = {

@@ -378,6 +378,19 @@ main {
   cursor: not-allowed;
 }
 
+.btn-video {
+  background: rgba(14, 165, 233, 0.15);
+  color: var(--signal-cyan);
+  border-color: rgba(14, 165, 233, 0.38);
+  font-weight: 700;
+}
+
+.btn-video:hover {
+  background: rgba(14, 165, 233, 0.28);
+  border-color: var(--signal-cyan);
+  color: #fff;
+}
+
 .btn-secondary {
   background: var(--bg-surface-active);
   color: var(--text-primary);

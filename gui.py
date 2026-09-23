@@ -431,11 +431,12 @@ class BleedGateGUI:
 
         btn_box = ttk.Frame(card_src, style="Card.TFrame")
         btn_box.pack(fill="x", pady=(0, 4))
+        ttk.Button(btn_box, text="🎬 Import 4K Video...", command=self._select_auto_video).pack(side="left", padx=(0, 6))
         ttk.Button(btn_box, text="📁 Select Session Folder...", command=self._select_auto_folder).pack(side="left", padx=(0, 6))
         ttk.Button(btn_box, text="📁 Select Track Files...", command=self._select_auto_files).pack(side="left", padx=(0, 6))
         ttk.Button(btn_box, text="🗑️ Clear All Slots", command=self._clear_auto_slots).pack(side="right")
 
-        self.auto_src_info_var = tk.StringVar(value="💡 Drop a session folder (e.g. SW5E SESSION 7 TRACKS) or 6 audio files here to auto-map all slots.")
+        self.auto_src_info_var = tk.StringVar(value="💡 Drop a 4K video (.mkv/.mp4), session folder, or 6 audio files here to auto-map all slots.")
         ttk.Label(card_src, textvariable=self.auto_src_info_var, style="BannerCyan.TLabel").pack(fill="x")
 
         # Card 2: 6-Track Session Slot Matrix
@@ -1613,6 +1614,17 @@ class BleedGateGUI:
             self.studio_out_path_var.set(f"{base}.wav")
 
     # Tab 0 Handlers (1-Click Session Auto-Master)
+    def _select_auto_video(self):
+        video_file = filedialog.askopenfilename(
+            title="Select 4K Video Container (.mkv, .mp4, .mov)",
+            filetypes=[
+                ("Video Containers (*.mkv, *.mp4, *.mov, *.webm, *.avi)", "*.mkv *.mp4 *.mov *.webm *.avi *.m4v"),
+                ("All Files", "*.*")
+            ]
+        )
+        if video_file:
+            self._load_auto_session_source(video_file)
+
     def _select_auto_folder(self):
         folder = filedialog.askdirectory(title="Select Multitrack Session Folder")
         if folder:

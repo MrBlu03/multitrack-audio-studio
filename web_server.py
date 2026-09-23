@@ -39,6 +39,15 @@ from multitrack_bleed_gate import (
     _CUDA_DEVICE,
 )
 
+# Import video ingestion engine
+from video_ingest import (
+    probe_video_streams,
+    extract_video_audio_stems,
+    is_video_file,
+    get_default_video_track_mapping,
+    VIDEO_EXTENSIONS,
+)
+
 # Import transcriber
 try:
     from multitrack_transcriber import (
@@ -102,12 +111,17 @@ class SessionState:
         self.export_json = False
         self.auto_mute_flags = False
         
+        # Video Ingestion State
+        self.video_source_file = ""
+        self.video_streams_info: List[Dict[str, Any]] = []
+        self.is_extracting_video = False
+
         # Execution State
         self.is_processing = False
         self.is_cancelled = False
         self.last_output_file: Optional[str] = None
         self.progress_percent = 0.0
-        self.status_message = "Ready. Drop a session folder or select audio tracks."
+        self.status_message = "Ready. Drop a 4K video, session folder, or select audio tracks."
         self.active_clients: List[WebSocket] = []
         self._lock = threading.Lock()
 
@@ -174,6 +188,14 @@ class SettingsUpdateReq(BaseModel):
 class StartMasterReq(BaseModel):
     preview_sec: Optional[float] = None
 
+class VideoIngestReq(BaseModel):
+    video_path: str
+    custom_mapping: Optional[Dict[int, int]] = None
+
+class VideoProbeReq(BaseModel):
+    video_path: str
+
+
 
 @app.get("/api/state")
 def get_state():
@@ -201,6 +223,9 @@ def get_state():
         "progress_percent": state.progress_percent,
         "status_message": state.status_message,
         "last_output_file": state.last_output_file,
+        "video_source_file": state.video_source_file,
+        "video_streams_info": state.video_streams_info,
+        "is_extracting_video": state.is_extracting_video,
         "cuda_available": _CUDA_AVAILABLE,
         "cuda_device": _CUDA_DEVICE,
         "has_transcriber": HAS_TRANSCRIBER,
@@ -293,6 +318,72 @@ def _apply_detected_tracks(tracks: Dict[int, str], session_name: str, folder_pat
     ws_emit_sync({"type": "session_loaded", "name": session_name, "count": detected_count})
 
 
+def _process_video_ingestion(video_path: str, custom_mapping: Optional[Dict[int, int]] = None):
+    """Background worker for extracting audio tracks from a 4K video container."""
+    if not is_video_file(video_path):
+        log_broadcast(f"[-] Invalid or non-existent video file: {video_path}")
+        return False
+
+    state.is_extracting_video = True
+    state.video_source_file = video_path
+    base_name = os.path.splitext(os.path.basename(video_path))[0]
+    session_name = f"{base_name} (4K Stems)"
+    
+    probe = probe_video_streams(video_path)
+    state.video_streams_info = probe.get("audio_streams", [])
+    num_tracks = probe.get("num_audio_streams", 0)
+    
+    log_broadcast(f"\n======================================================================")
+    log_broadcast(f"🎬 DIRECT 4K VIDEO INGESTION: {os.path.basename(video_path)}")
+    log_broadcast(f"Duration: {probe.get('duration_sec', 0):.1f}s | Audio Streams: {num_tracks}")
+    log_broadcast(f"Mode: {'Cyberpunk RED' if state.campaign_mode == 'red' else 'Star Wars 5e'}")
+    log_broadcast(f"======================================================================\n")
+
+    parent_dir = os.path.dirname(os.path.abspath(video_path))
+    stems_dir = os.path.join(parent_dir, f"{base_name}_Stems")
+
+    def _v_prog(p):
+        pct = p.get("percent", 0.0)
+        state.progress_percent = pct
+        state.status_message = p.get("status", "")
+        ws_emit_sync({
+            "type": "video_progress",
+            "percent": pct,
+            "speed": p.get("speed", 1.0),
+            "status": state.status_message
+        })
+
+    def _v_cancel():
+        return state.is_cancelled
+
+    try:
+        extracted = extract_video_audio_stems(
+            video_path=video_path,
+            output_dir=stems_dir,
+            campaign_mode=state.campaign_mode,
+            custom_track_mapping=custom_mapping,
+            progress_callback=_v_prog,
+            cancel_check=_v_cancel,
+            log_func=log_broadcast
+        )
+        _apply_detected_tracks(extracted, session_name=session_name, folder_path=stems_dir)
+        ws_emit_sync({
+            "type": "video_extracted",
+            "success": True,
+            "video_path": video_path,
+            "session_name": session_name,
+            "count": len(extracted),
+            "state": get_state()
+        })
+        return True
+    except Exception as e:
+        log_broadcast(f"[-] Video extraction failed: {e}")
+        ws_emit_sync({"type": "video_extracted", "success": False, "error": str(e)})
+        return False
+    finally:
+        state.is_extracting_video = False
+
+
 @app.post("/api/browse-folder")
 def browse_folder():
     """Trigger native Windows folder dialog in a separate hidden Tk root."""
@@ -324,12 +415,20 @@ def browse_files():
         root.withdraw()
         root.attributes("-topmost", True)
         files = filedialog.askopenfilenames(
-            title="Select Multitrack Session Audio Files",
-            filetypes=[("Audio Files (*.mp3, *.wav, *.flac)", "*.mp3 *.wav *.flac *.aiff"), ("All Files", "*.*")]
+            title="Select Multitrack Session Audio Files or Video",
+            filetypes=[
+                ("Audio & Video Files", "*.mp3 *.wav *.flac *.aiff *.mkv *.mp4 *.mov *.webm *.avi *.m4v"),
+                ("Audio Files (*.mp3, *.wav, *.flac)", "*.mp3 *.wav *.flac *.aiff"),
+                ("Video Containers (*.mkv, *.mp4, *.mov)", "*.mkv *.mp4 *.mov *.webm *.avi *.m4v"),
+                ("All Files", "*.*")
+            ]
         )
         root.destroy()
         if files:
             files_list = list(files)
+            if len(files_list) == 1 and is_video_file(files_list[0]):
+                threading.Thread(target=_process_video_ingestion, args=(files_list[0],), daemon=True).start()
+                return get_state()
             session_name = os.path.basename(os.path.dirname(files_list[0]))
             tracks = auto_detect_session_tracks(files_list, campaign_mode=state.campaign_mode)
             _apply_detected_tracks(tracks, session_name)
@@ -337,6 +436,47 @@ def browse_files():
     except Exception as e:
         log_broadcast(f"[-] Browse files error: {e}")
     return get_state()
+
+
+@app.post("/api/browse-video")
+def browse_video():
+    """Trigger native Windows file open dialog specifically for 4K video containers."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        video_file = filedialog.askopenfilename(
+            title="Select 4K Video Container (.mkv, .mp4, .mov)",
+            filetypes=[
+                ("Video Containers (*.mkv, *.mp4, *.mov, *.webm, *.avi)", "*.mkv *.mp4 *.mov *.webm *.avi *.m4v"),
+                ("All Files", "*.*")
+            ]
+        )
+        root.destroy()
+        if video_file and is_video_file(video_file):
+            threading.Thread(target=_process_video_ingestion, args=(video_file,), daemon=True).start()
+            return get_state()
+    except Exception as e:
+        log_broadcast(f"[-] Browse video error: {e}")
+    return get_state()
+
+
+@app.post("/api/ingest-video")
+def ingest_video_endpoint(req: VideoIngestReq):
+    """Directly ingest a video file given its path (e.g. from drag & drop)."""
+    if not is_video_file(req.video_path):
+        return JSONResponse({"error": f"Invalid video file path: {req.video_path}"}, status_code=400)
+    threading.Thread(target=_process_video_ingestion, args=(req.video_path, req.custom_mapping), daemon=True).start()
+    return {"status": "started", "video_path": req.video_path}
+
+
+@app.post("/api/probe-video")
+def probe_video_endpoint(req: VideoProbeReq):
+    """Inspect video audio streams in milliseconds."""
+    probe = probe_video_streams(req.video_path)
+    return probe
 
 
 @app.post("/api/browse-single-file/{slot}")
