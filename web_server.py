@@ -43,10 +43,12 @@ from multitrack_bleed_gate import (
 from video_ingest import (
     probe_video_streams,
     extract_video_audio_stems,
+    predict_video_stem_mapping,
     is_video_file,
     get_default_video_track_mapping,
     VIDEO_EXTENSIONS,
 )
+
 
 # Import transcriber
 try:
@@ -315,7 +317,40 @@ def _apply_detected_tracks(tracks: Dict[int, str], session_name: str, folder_pat
         state.output_dir = os.path.join(base_dir, "Mastered")
         
     log_broadcast(f"[+] Loaded Session '{session_name}' ({detected_count} track(s) mapped)")
-    ws_emit_sync({"type": "session_loaded", "name": session_name, "count": detected_count})
+    ws_emit_sync({"type": "session_loaded", "name": session_name, "count": detected_count, "state": get_state()})
+
+
+def _apply_predicted_video_tracks(prediction: Dict[str, Any], video_path: str):
+    """Instantly populate rack slot cards and telemetry BEFORE background ffmpeg extraction finishes."""
+    base_name = os.path.splitext(os.path.basename(video_path))[0]
+    session_name = f"{base_name} (4K Stems)"
+    state.session_source_name = session_name
+    state.video_source_file = video_path
+    state.is_extracting_video = True
+    state.progress_percent = 0.0
+    state.status_message = f"Extracting 4K audio stems from {os.path.basename(video_path)}..."
+    output_dir = prediction.get("output_dir", "")
+    if output_dir:
+        state.output_dir = os.path.join(output_dir, "Mastered")
+
+    slots_data = prediction.get("slots", {})
+    for s in range(1, 7):
+        if s in slots_data:
+            s_info = slots_data[s]
+            state.auto_slots[s]["path"] = s_info["path"]
+            state.auto_slots[s]["filename"] = s_info["filename"]
+            state.auto_slots[s]["player"] = s_info.get("player", f"Speaker {s}")
+            state.auto_slots[s]["character"] = s_info.get("character", "")
+            state.auto_slots[s]["profile_id"] = s_info.get("profile_id", "t3_reference")
+            state.auto_slots[s]["profile_name"] = profile_id_to_str(s_info.get("profile_id", "t3_reference"))
+            state.auto_slots[s]["active"] = True
+        else:
+            state.auto_slots[s]["path"] = ""
+            state.auto_slots[s]["filename"] = ""
+            state.auto_slots[s]["active"] = False
+
+    log_broadcast(f"[+] Instant-Mapped {len(slots_data)} 4K tracks for '{session_name}'. Extraction in progress...")
+    ws_emit_sync({"type": "session_loaded", "name": session_name, "count": len(slots_data), "state": get_state()})
 
 
 def _process_video_ingestion(video_path: str, custom_mapping: Optional[Dict[int, int]] = None):
@@ -367,6 +402,7 @@ def _process_video_ingestion(video_path: str, custom_mapping: Optional[Dict[int,
             log_func=log_broadcast
         )
         _apply_detected_tracks(extracted, session_name=session_name, folder_path=stems_dir)
+        state.status_message = f"4K audio extraction complete ({len(extracted)} stems ready)."
         ws_emit_sync({
             "type": "video_extracted",
             "success": True,
@@ -378,7 +414,8 @@ def _process_video_ingestion(video_path: str, custom_mapping: Optional[Dict[int,
         return True
     except Exception as e:
         log_broadcast(f"[-] Video extraction failed: {e}")
-        ws_emit_sync({"type": "video_extracted", "success": False, "error": str(e)})
+        state.status_message = f"Video extraction failed: {e}"
+        ws_emit_sync({"type": "video_extracted", "success": False, "error": str(e), "state": get_state()})
         return False
     finally:
         state.is_extracting_video = False
@@ -397,7 +434,7 @@ def browse_folder():
         root.destroy()
         if folder and os.path.isdir(folder):
             session_name = os.path.basename(folder)
-            tracks = auto_detect_session_tracks(folder, campaign_mode=state.campaign_mode)
+            tracks = auto_detect_session_tracks(folder, mode=state.campaign_mode)
             _apply_detected_tracks(tracks, session_name, folder)
             return get_state()
     except Exception as e:
@@ -427,10 +464,14 @@ def browse_files():
         if files:
             files_list = list(files)
             if len(files_list) == 1 and is_video_file(files_list[0]):
-                threading.Thread(target=_process_video_ingestion, args=(files_list[0],), daemon=True).start()
+                video_file = files_list[0]
+                prediction = predict_video_stem_mapping(video_file, campaign_mode=state.campaign_mode)
+                if prediction.get("success"):
+                    _apply_predicted_video_tracks(prediction, video_file)
+                threading.Thread(target=_process_video_ingestion, args=(video_file,), daemon=True).start()
                 return get_state()
             session_name = os.path.basename(os.path.dirname(files_list[0]))
-            tracks = auto_detect_session_tracks(files_list, campaign_mode=state.campaign_mode)
+            tracks = auto_detect_session_tracks(files_list, mode=state.campaign_mode)
             _apply_detected_tracks(tracks, session_name)
             return get_state()
     except Exception as e:
@@ -456,6 +497,9 @@ def browse_video():
         )
         root.destroy()
         if video_file and is_video_file(video_file):
+            prediction = predict_video_stem_mapping(video_file, campaign_mode=state.campaign_mode)
+            if prediction.get("success"):
+                _apply_predicted_video_tracks(prediction, video_file)
             threading.Thread(target=_process_video_ingestion, args=(video_file,), daemon=True).start()
             return get_state()
     except Exception as e:
@@ -468,8 +512,12 @@ def ingest_video_endpoint(req: VideoIngestReq):
     """Directly ingest a video file given its path (e.g. from drag & drop)."""
     if not is_video_file(req.video_path):
         return JSONResponse({"error": f"Invalid video file path: {req.video_path}"}, status_code=400)
+    prediction = predict_video_stem_mapping(req.video_path, campaign_mode=state.campaign_mode, custom_track_mapping=req.custom_mapping)
+    if prediction.get("success"):
+        _apply_predicted_video_tracks(prediction, req.video_path)
     threading.Thread(target=_process_video_ingestion, args=(req.video_path, req.custom_mapping), daemon=True).start()
-    return {"status": "started", "video_path": req.video_path}
+    return {"status": "started", "video_path": req.video_path, "state": get_state()}
+
 
 
 @app.post("/api/probe-video")

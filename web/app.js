@@ -55,7 +55,13 @@ function handleWsMessage(msg) {
   } else if (msg.type === 'state_update') {
     appState = msg.state;
     renderUI();
+  } else if (msg.type === 'session_loaded') {
+    if (msg.state) {
+      appState = msg.state;
+      renderUI();
+    }
   } else if (msg.type === 'log') {
+
     appendConsole(msg.text, 'log');
   } else if (msg.type === 'progress') {
     const p = msg.data;
@@ -620,15 +626,21 @@ function setupDragAndDrop() {
         if (isVideo) {
           try {
             document.getElementById('dockStatusText').textContent = `[INGESTING 4K VIDEO] ${firstFile.name}...`;
-            await fetch('/api/ingest-video', {
+            const res = await fetch('/api/ingest-video', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ video_path: firstFile.path })
             });
+            const data = await res.json();
+            if (data && data.state) {
+              appState = data.state;
+              renderUI();
+            }
             return;
           } catch (err) {
             console.error('Video drop ingest error:', err);
           }
+
         }
       } else if (isVideo) {
         browseVideo();

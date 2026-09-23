@@ -1906,11 +1906,13 @@ def profile_id_to_str(prof_id: str) -> str:
     return mapping.get(prof_id, "Blu: Reference Standard (Natural Dialogue)")
 
 
-def auto_detect_session_tracks(source: Union[str, List[str]], mode: str = "sw5e") -> Dict[int, str]:
+def auto_detect_session_tracks(source: Union[str, List[str]], mode: str = "sw5e", campaign_mode: Optional[str] = None) -> Dict[int, str]:
     """
     Detect session audio tracks and map them to slots 1-6 according to the active campaign mode (sw5e or red).
     'source' can be a folder path or a list of file paths.
     """
+    if campaign_mode is not None:
+        mode = campaign_mode
     audio_exts = ('.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac', '.aiff', '.wma')
     video_exts = ('.mkv', '.mp4', '.mov', '.m4v', '.avi', '.webm')
     candidate_paths = []

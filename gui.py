@@ -112,7 +112,20 @@ try:
 except Exception as e:
     HAS_TRANSCRIBER = False
 
+# Import video ingestion engine
+try:
+    from video_ingest import (
+        probe_video_streams,
+        extract_video_audio_stems,
+        predict_video_stem_mapping,
+        is_video_file,
+        VIDEO_EXTENSIONS,
+    )
+except Exception:
+    pass
+
 # Try importing windnd for native Windows drag-and-drop
+
 try:
     import windnd
     HAS_WINDND = True
@@ -1203,9 +1216,26 @@ class BleedGateGUI:
                 elif msg_type == "transcribe_finish":
                     success, msg, out_file = payload
                     self._finish_transcription(success, msg, out_file)
+                elif msg_type == "video_progress":
+                    pct, speed, status_msg = payload
+                    self.progress_var.set(pct)
+                    spd_str = f"{speed:.1f}x" if speed else "~100x"
+                    self.status_lbl_var.set(f"Extracting 4K stems: {pct:.1f}% ({spd_str} real-time)")
+                elif msg_type == "video_finish":
+                    success, msg = payload
+                    if success:
+                        self.progress_var.set(100.0)
+                        self.status_lbl_var.set("Ready: 4K audio stems extracted & mapped. Click 'Process Entire Session' to master.")
+                        self.auto_src_info_var.set("🎬 4K Video Stems Extracted | Ready to Master")
+                        self._log(f"[+] {msg}")
+                    else:
+                        self.progress_var.set(0.0)
+                        self.status_lbl_var.set(f"Video extraction failed: {msg}")
+                        self._log(f"[-] Video extraction failed: {msg}")
                 elif msg_type == "finish":
                     success, msg = payload
                     self._finish_processing(success, msg)
+
         except queue.Empty:
             pass
         finally:
@@ -1217,7 +1247,7 @@ class BleedGateGUI:
     # Drag and Drop
     def _on_files_dropped(self, files):
         file_list = []
-        raw_paths = []
+        media_exts = ('.wav', '.flac', '.aiff', '.mp3', '.ogg', '.m4a', '.aac', '.mkv', '.mp4', '.mov', '.webm', '.avi', '.m4v')
         for f in files:
             p = f.decode("utf-8", errors="replace") if isinstance(f, bytes) else str(f)
             raw_paths.append(p)
@@ -1225,7 +1255,7 @@ class BleedGateGUI:
                 file_list.append(p)
             elif os.path.isdir(p):
                 for sub_f in sorted(os.listdir(p)):
-                    if sub_f.lower().endswith((".wav", ".flac", ".aiff", ".mp3", ".ogg", ".m4a", ".aac")):
+                    if sub_f.lower().endswith(media_exts):
                         file_list.append(os.path.join(p, sub_f))
 
         if not file_list and not any(os.path.isdir(p) for p in raw_paths):
@@ -1237,16 +1267,23 @@ class BleedGateGUI:
         if current_tab == 0:
             if len(raw_paths) == 1 and os.path.isdir(raw_paths[0]):
                 self._load_auto_session_source(raw_paths[0])
+            elif len(raw_paths) == 1 and os.path.isfile(raw_paths[0]) and is_video_file(raw_paths[0]):
+                self._load_auto_video(raw_paths[0])
             else:
                 self._load_auto_session_source(file_list if file_list else raw_paths)
             return
 
         # If on Tab 1 (Multitrack Transcriber)
-        audio_files = [f for f in file_list if f.lower().endswith((".wav", ".flac", ".aiff", ".mp3", ".ogg", ".m4a", ".aac"))]
+        if len(raw_paths) == 1 and os.path.isfile(raw_paths[0]) and is_video_file(raw_paths[0]):
+            self._load_auto_video(raw_paths[0])
+            return
+
+        audio_files = [f for f in file_list if f.lower().endswith(('.wav', '.flac', '.aiff', '.mp3', '.ogg', '.m4a', '.aac'))]
         if audio_files:
             self._load_transcribe_dropped_files(audio_files)
         else:
-            messagebox.showwarning("No Audio Files", "None of the dropped files are supported audio formats.")
+            messagebox.showwarning("No Audio Files", "None of the dropped files are supported audio or video formats.")
+
 
     # Tab 1 Handlers
     def _select_multi_files(self):
@@ -1623,7 +1660,72 @@ class BleedGateGUI:
             ]
         )
         if video_file:
-            self._load_auto_session_source(video_file)
+            self._load_auto_video(video_file)
+
+    def _load_auto_video(self, video_file: str):
+        mode = self.campaign_mode_var.get()
+        try:
+            from video_ingest import predict_video_stem_mapping, extract_video_audio_stems
+        except Exception as e:
+            messagebox.showerror("Error", f"video_ingest engine failed to load: {e}")
+            return
+
+        prediction = predict_video_stem_mapping(video_file, campaign_mode=mode)
+        if not prediction.get("success"):
+            messagebox.showerror("Video Ingest Error", prediction.get("error", "Failed to probe video."))
+            return
+
+        slots_data = prediction.get("slots", {})
+        if not slots_data:
+            messagebox.showwarning("No Audio Tracks", f"No discrete audio tracks found in {os.path.basename(video_file)}.")
+            return
+
+        # 1. Instantly populate UI slots BEFORE background extraction finishes!
+        for slot_num in range(1, 7):
+            if slot_num in slots_data:
+                s_info = slots_data[slot_num]
+                self.auto_slots[slot_num]["path_var"].set(s_info["path"])
+                self.auto_slots[slot_num]["prof_var"].set(profile_id_to_str(s_info["profile_id"]))
+            else:
+                self.auto_slots[slot_num]["path_var"].set("")
+
+        out_dir = prediction.get("output_dir", "")
+        self.auto_session_dir = out_dir
+        self.auto_out_dir_var.set(os.path.join(out_dir, "Mastered"))
+
+        fn = os.path.basename(video_file)
+        self.auto_src_info_var.set(f"🎬 Video: {fn} | ⏳ Extracting {len(slots_data)} stems in background...")
+        self.status_lbl_var.set(f"Extracting audio stems from {fn}...")
+        self._log(f"\n======================================================================")
+        self._log(f"🎬 DIRECT 4K VIDEO INGESTION: {fn}")
+        self._log(f"Streams: {prediction.get('num_audio_streams')} | Duration: {prediction.get('duration_sec', 0):.1f}s | Mode: {mode.upper()}")
+        for s_idx, s_info in sorted(slots_data.items()):
+            self._log(f"    Slot {s_idx} [{s_info['player']}]: {s_info['filename']} -> {profile_id_to_str(s_info['profile_id'])}")
+        if prediction.get("music_path"):
+            self._log(f"    Music Stem: {os.path.basename(prediction['music_path'])}")
+        self._log(f"======================================================================\n")
+
+        # 2. Run extraction in a background thread so UI never freezes!
+        def _extract_worker():
+            def _prog(p):
+                pct = p.get("percent", 0.0)
+                speed = p.get("speed", 1.0)
+                status = p.get("status", "")
+                self.msg_queue.put(("video_progress", (pct, speed, status)))
+
+            try:
+                extracted = extract_video_audio_stems(
+                    video_path=video_file,
+                    output_dir=out_dir,
+                    campaign_mode=mode,
+                    progress_callback=_prog,
+                    log_func=lambda msg: self.msg_queue.put(("log", msg))
+                )
+                self.msg_queue.put(("video_finish", (True, f"Extracted {len(extracted)} stems from {fn}.")))
+            except Exception as e:
+                self.msg_queue.put(("video_finish", (False, str(e))))
+
+        threading.Thread(target=_extract_worker, daemon=True).start()
 
     def _select_auto_folder(self):
         folder = filedialog.askdirectory(title="Select Multitrack Session Folder")
@@ -1661,8 +1763,21 @@ class BleedGateGUI:
         self.auto_src_info_var.set("Slots cleared. Drop a session folder or select track files above.")
 
     def _load_auto_session_source(self, source):
+        # Check if source is a direct video file
+        try:
+            from video_ingest import is_video_file
+            if isinstance(source, str) and is_video_file(source):
+                self._load_auto_video(source)
+                return
+            if isinstance(source, list) and len(source) == 1 and is_video_file(source[0]):
+                self._load_auto_video(source[0])
+                return
+        except Exception:
+            pass
+
         mode = self.campaign_mode_var.get()
         detected = auto_detect_session_tracks(source, mode=mode)
+
         if not detected:
             messagebox.showwarning("No Tracks Detected", f"No audio tracks (1-6) were automatically identified in the selected folder/files for mode '{mode}'.")
             return

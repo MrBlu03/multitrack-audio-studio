@@ -14,7 +14,9 @@ import re
 import json
 import time
 import subprocess
+import threading
 from typing import Dict, List, Any, Optional, Tuple, Callable
+
 
 
 VIDEO_EXTENSIONS = ('.mkv', '.mp4', '.mov', '.m4v', '.avi', '.webm')
@@ -206,6 +208,98 @@ def get_default_video_track_mapping(campaign_mode: str = "sw5e", num_streams: in
         }
 
 
+def predict_video_stem_mapping(
+    video_path: str,
+    campaign_mode: str = "sw5e",
+    custom_track_mapping: Optional[Dict[int, int]] = None,
+    output_dir: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Instantly (<50ms) predict all slot assignments, player names, and destination WAV paths
+    WITHOUT decoding or extracting audio. Used for immediate UI feedback.
+    """
+    probe = probe_video_streams(video_path)
+    if not probe.get("success"):
+        return {"success": False, "error": probe.get("error")}
+
+    audio_streams = probe.get("audio_streams", [])
+    num_streams = len(audio_streams)
+    if num_streams == 0:
+        return {"success": False, "error": "No audio tracks found inside video container"}
+
+    if not output_dir:
+        base_name = os.path.splitext(os.path.basename(video_path))[0]
+        parent_dir = os.path.dirname(os.path.abspath(video_path))
+        output_dir = os.path.join(parent_dir, f"{base_name}_Stems")
+
+    default_mapping = get_default_video_track_mapping(campaign_mode, num_streams=num_streams)
+    is_multichannel = probe.get("is_multichannel_single_stream", False)
+
+    slots: Dict[int, Dict[str, Any]] = {}
+    music_path = None
+
+    if not is_multichannel:
+        for i in range(num_streams):
+            info = default_mapping.get(i, {})
+            slot = info.get("slot")
+            if custom_track_mapping and i in custom_track_mapping:
+                slot = custom_track_mapping[i]
+            role = info.get("role", "voice")
+            player_name = info.get("player", f"Track_{i+1}")
+            character = info.get("character", "")
+            profile_id = info.get("profile_id", "t3_reference")
+
+            if role == "music":
+                music_path = os.path.join(output_dir, "Track_Music.wav")
+            elif slot is not None and slot >= 1 and role == "voice":
+                clean_name = re.sub(r'[^a-zA-Z0-9_\-]', '', player_name.replace(' ', '_'))
+                out_filename = f"Track_{slot:02d}_{clean_name}.wav"
+                out_path = os.path.join(output_dir, out_filename)
+                slots[slot] = {
+                    "slot": slot,
+                    "stream_idx": i,
+                    "path": out_path,
+                    "filename": out_filename,
+                    "player": player_name,
+                    "character": character,
+                    "profile_id": profile_id,
+                    "active": True
+                }
+    else:
+        num_channels = min(audio_streams[0]["channels"], 6)
+        for ch_idx in range(num_channels):
+            slot = ch_idx + 1
+            info = default_mapping.get(ch_idx, {})
+            player_name = info.get("player", f"Speaker {slot}")
+            character = info.get("character", "")
+            profile_id = info.get("profile_id", "t3_reference")
+            clean_name = re.sub(r'[^a-zA-Z0-9_\-]', '', player_name.replace(' ', '_'))
+            out_filename = f"Track_{slot:02d}_{clean_name}.wav"
+            out_path = os.path.join(output_dir, out_filename)
+            slots[slot] = {
+                "slot": slot,
+                "stream_idx": 0,
+                "channel_idx": ch_idx,
+                "path": out_path,
+                "filename": out_filename,
+                "player": player_name,
+                "character": character,
+                "profile_id": profile_id,
+                "active": True
+            }
+
+    return {
+        "success": True,
+        "video_path": video_path,
+        "output_dir": output_dir,
+        "duration_sec": probe.get("duration_sec", 0.0),
+        "num_audio_streams": num_streams,
+        "slots": slots,
+        "music_path": music_path,
+        "is_multichannel_single_stream": is_multichannel
+    }
+
+
 def extract_video_audio_stems(
     video_path: str,
     output_dir: Optional[str] = None,
@@ -252,6 +346,7 @@ def extract_video_audio_stems(
     os.makedirs(output_dir, exist_ok=True)
 
     extracted_slots: Dict[int, str] = {}
+
     
     # Case 1: Multiple discrete audio streams (MeldStudio 8-track or OBS multi-track)
     if not probe.get("is_multichannel_single_stream"):
@@ -346,6 +441,20 @@ def extract_video_audio_stems(
                 out_path
             ])
 
+    # Check if stems were already fully extracted previously
+    all_exist = all(os.path.isfile(p) and os.path.getsize(p) > 1024 for p in extracted_slots.values())
+    if all_exist and len(extracted_slots) > 0:
+        log_func(f"[Video Ingest] All {len(extracted_slots)} stems already extracted in: {output_dir}")
+        if progress_callback:
+            progress_callback({
+                "percent": 100.0,
+                "current_sec": round(total_duration, 1),
+                "total_sec": round(total_duration, 1),
+                "speed": 100.0,
+                "status": "Stems ready (cached)."
+            })
+        return extracted_slots
+
     # Execute ffmpeg with real-time progress parsing
     startupinfo = None
     if sys.platform == "win32":
@@ -363,6 +472,18 @@ def extract_video_audio_stems(
         startupinfo=startupinfo,
         bufsize=1
     )
+
+    stderr_lines = []
+    def _drain_stderr():
+        try:
+            for l in iter(proc.stderr.readline, ''):
+                if l:
+                    stderr_lines.append(l)
+        except Exception:
+            pass
+
+    err_t = threading.Thread(target=_drain_stderr, daemon=True)
+    err_t.start()
 
     out_time_us = 0
     cur_speed = 1.0
@@ -406,7 +527,9 @@ def extract_video_audio_stems(
                     "status": f"Extracting audio: {pct:.1f}% ({cur_speed:.1f}x real-time)"
                 })
 
-    stderr_output = proc.stderr.read()
+    proc.wait()
+    err_t.join(timeout=1.0)
+    stderr_output = "".join(stderr_lines)
     if proc.returncode != 0:
         raise RuntimeError(f"FFmpeg extraction failed (code {proc.returncode}): {stderr_output.strip()}")
 
@@ -423,3 +546,4 @@ def extract_video_audio_stems(
         })
 
     return extracted_slots
+
