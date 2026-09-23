@@ -303,6 +303,29 @@ check("Post-normalise LUFS within ±3 dB of target (-18 LUFS)",
       abs(lufs_after - (-18.0)) < 3.0,
       f"measured {lufs_after:.1f} LUFS after normalise")
 
+# (c) Test streaming file normalizer (O(1) memory)
+with tempfile.TemporaryDirectory() as td_norm:
+    test_in_wav = os.path.join(td_norm, "test_in.wav")
+    test_out_wav = os.path.join(td_norm, "test_out.wav")
+    test_out_flac = os.path.join(td_norm, "test_out.flac")
+    sf.write(test_in_wav, long_speech, SR)
+
+    file_lufs, file_peak = norm.measure_file_speech_lufs(test_in_wav)
+    check("measure_file_speech_lufs matches in-memory within 0.1 LUFS",
+          abs(file_lufs - lufs_measured) < 0.1,
+          f"file={file_lufs:.2f}, mem={lufs_measured:.2f}")
+
+    f_gain, f_lufs, f_peak = norm.normalize_file(test_in_wav, test_out_wav)
+    check("normalize_file WAV output exists and non-empty",
+          os.path.isfile(test_out_wav) and os.path.getsize(test_out_wav) > 1000)
+    check("normalize_file peak ceiling respected",
+          f_peak <= -1.0 + 0.05,
+          f"final_peak={f_peak:.2f} dBFS")
+
+    f_gain_flac, f_lufs_flac, f_peak_flac = norm.normalize_file(test_in_wav, test_out_flac, is_flac=True)
+    check("normalize_file FLAC output exists and non-empty",
+          os.path.isfile(test_out_flac) and os.path.getsize(test_out_flac) > 1000)
+
 print(f"     → Input: {meas_lufs:.1f} LUFS  → Applied: {gain_db:+.1f} dB → Output: {lufs_after:.1f} LUFS | Peak: {final_peak:.1f} dBFS")
 
 
