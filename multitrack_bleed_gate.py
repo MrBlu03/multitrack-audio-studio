@@ -1255,6 +1255,12 @@ def get_rnnoise_dll_path() -> Optional[str]:
     return None
 
 
+# Profiles with acoustic properties that conflict with RNNoise's close-mic training:
+# - t6_laptop_fan: low-SNR distant laptop mic (RNNoise wipes out quiet consonants/interjections)
+# - t1_room_echo: room reverberation/slapback (RNNoise distorts echo decays into alien/hallucinatory speech)
+_AI_BYPASS_PROFILES = {"t6_laptop_fan", "t1_room_echo"}
+
+
 class AIRNNoiseSuppressor:
     """
     Neural Network Audio Noise Suppressor (RNNoise).
@@ -1390,78 +1396,78 @@ class EnsembleVocalRestorer:
 
         if profile == "t1_room_echo":
             self.b_hp, self.a_hp = signal.butter(2, 75.0 / (sr/2), btype='highpass')
-            self.zi_hp = signal.lfilter_zi(self.b_hp, self.a_hp)
+            self.zi_hp = signal.lfilter_zi(self.b_hp, self.a_hp) * 0.0
             self.b_w, self.a_w = biquad_shelf(+1.2, 180.0, True, sr)
-            self.zi_w = signal.lfilter_zi(self.b_w, self.a_w)
+            self.zi_w = signal.lfilter_zi(self.b_w, self.a_w) * 0.0
             self.b_p, self.a_p = None, None
             self.zi_p = None
             self.b_a, self.a_a = biquad_shelf(+1.5, 5000.0, False, sr)
-            self.zi_a = signal.lfilter_zi(self.b_a, self.a_a)
+            self.zi_a = signal.lfilter_zi(self.b_a, self.a_a) * 0.0
             self.tail_g = 1.0
         elif profile == "t2_muffled":
             self.b_hp, self.a_hp = signal.butter(2, 80.0 / (sr/2), btype='highpass')
-            self.zi_hp = signal.lfilter_zi(self.b_hp, self.a_hp)
+            self.zi_hp = signal.lfilter_zi(self.b_hp, self.a_hp) * 0.0
             self.b_m, self.a_m = biquad_peaking(-6.0, 340.0, 1.3, sr)
-            self.zi_m = signal.lfilter_zi(self.b_m, self.a_m)
+            self.zi_m = signal.lfilter_zi(self.b_m, self.a_m) * 0.0
             self.b_p, self.a_p = biquad_peaking(+3.8, 2200.0, 1.2, sr)
-            self.zi_p = signal.lfilter_zi(self.b_p, self.a_p)
+            self.zi_p = signal.lfilter_zi(self.b_p, self.a_p) * 0.0
             self.b_a, self.a_a = biquad_shelf(+9.5, 4800.0, False, sr)
-            self.zi_a = signal.lfilter_zi(self.b_a, self.a_a)
+            self.zi_a = signal.lfilter_zi(self.b_a, self.a_a) * 0.0
         elif profile == "t4_megaphone":
             self.b_hp, self.a_hp = signal.butter(3, 85.0 / (sr/2), btype='highpass')
-            self.zi_hp = signal.lfilter_zi(self.b_hp, self.a_hp)
+            self.zi_hp = signal.lfilter_zi(self.b_hp, self.a_hp) * 0.0
             self.b_w, self.a_w = biquad_shelf(+5.5, 160.0, True, sr)
-            self.zi_w = signal.lfilter_zi(self.b_w, self.a_w)
+            self.zi_w = signal.lfilter_zi(self.b_w, self.a_w) * 0.0
             self.b_m, self.a_m = biquad_peaking(-6.5, 515.0, 1.6, sr)
-            self.zi_m = signal.lfilter_zi(self.b_m, self.a_m)
+            self.zi_m = signal.lfilter_zi(self.b_m, self.a_m) * 0.0
             self.b_p, self.a_p = biquad_peaking(+4.2, 2000.0, 1.3, sr)
-            self.zi_p = signal.lfilter_zi(self.b_p, self.a_p)
+            self.zi_p = signal.lfilter_zi(self.b_p, self.a_p) * 0.0
             self.b_s, self.a_s = biquad_peaking(-3.5, 6200.0, 2.5, sr)
-            self.zi_s = signal.lfilter_zi(self.b_s, self.a_s)
+            self.zi_s = signal.lfilter_zi(self.b_s, self.a_s) * 0.0
             self.b_a, self.a_a = biquad_shelf(+3.0, 8000.0, False, sr)
-            self.zi_a = signal.lfilter_zi(self.b_a, self.a_a)
+            self.zi_a = signal.lfilter_zi(self.b_a, self.a_a) * 0.0
         elif profile in ("t5_headset", "t5_bleed_gate"):
             self.b_hp, self.a_hp = signal.butter(2, 75.0 / (sr/2), btype='highpass')
-            self.zi_hp = signal.lfilter_zi(self.b_hp, self.a_hp)
+            self.zi_hp = signal.lfilter_zi(self.b_hp, self.a_hp) * 0.0
             self.b_w, self.a_w = biquad_shelf(+4.5, 145.0, True, sr)
-            self.zi_w = signal.lfilter_zi(self.b_w, self.a_w)
+            self.zi_w = signal.lfilter_zi(self.b_w, self.a_w) * 0.0
             self.b_body, self.a_body = biquad_peaking(+2.0, 185.0, 1.2, sr)
-            self.zi_body = signal.lfilter_zi(self.b_body, self.a_body)
+            self.zi_body = signal.lfilter_zi(self.b_body, self.a_body) * 0.0
             self.b_m, self.a_m = biquad_peaking(-4.5, 450.0, 1.5, sr)
-            self.zi_m = signal.lfilter_zi(self.b_m, self.a_m)
+            self.zi_m = signal.lfilter_zi(self.b_m, self.a_m) * 0.0
             self.b_h, self.a_h = biquad_peaking(-2.5, 3300.0, 2.0, sr)
-            self.zi_h = signal.lfilter_zi(self.b_h, self.a_h)
+            self.zi_h = signal.lfilter_zi(self.b_h, self.a_h) * 0.0
             self.b_a, self.a_a = biquad_shelf(+2.0, 6500.0, False, sr)
-            self.zi_a = signal.lfilter_zi(self.b_a, self.a_a)
+            self.zi_a = signal.lfilter_zi(self.b_a, self.a_a) * 0.0
         elif profile in ("t7_rati_clarity", "t7_rati", "rati_clarity"):
             # Rati (Umbra): High-pass 75 Hz, 185 Hz de-boom cut (-5.0 dB), 420 Hz de-box cut (-4.5 dB), 2400 Hz consonant presence lift (+5.5 dB), 6500 Hz air shelf (+4.0 dB)
             self.b_hp, self.a_hp = signal.butter(2, 75.0 / (sr/2), btype='highpass')
-            self.zi_hp = signal.lfilter_zi(self.b_hp, self.a_hp)
+            self.zi_hp = signal.lfilter_zi(self.b_hp, self.a_hp) * 0.0
             self.b_boom, self.a_boom = biquad_peaking(-5.0, 185.0, 1.5, sr)
-            self.zi_boom = signal.lfilter_zi(self.b_boom, self.a_boom)
+            self.zi_boom = signal.lfilter_zi(self.b_boom, self.a_boom) * 0.0
             self.b_box, self.a_box = biquad_peaking(-4.5, 420.0, 1.4, sr)
-            self.zi_box = signal.lfilter_zi(self.b_box, self.a_box)
+            self.zi_box = signal.lfilter_zi(self.b_box, self.a_box) * 0.0
             self.b_pres, self.a_pres = biquad_peaking(+5.5, 2400.0, 1.1, sr)
-            self.zi_pres = signal.lfilter_zi(self.b_pres, self.a_pres)
+            self.zi_pres = signal.lfilter_zi(self.b_pres, self.a_pres) * 0.0
             self.b_air, self.a_air = biquad_shelf(+4.0, 6500.0, False, sr)
-            self.zi_air = signal.lfilter_zi(self.b_air, self.a_air)
+            self.zi_air = signal.lfilter_zi(self.b_air, self.a_air) * 0.0
         elif profile in ("t3_reference", "t3_reference_standard"):
             # Natural broadcast pass: 60 Hz 2nd-order high-pass for sub-rumble + neutral dynamics
             self.b_hp, self.a_hp = signal.butter(2, 60.0 / (sr/2), btype='highpass')
-            self.zi_hp = signal.lfilter_zi(self.b_hp, self.a_hp)
+            self.zi_hp = signal.lfilter_zi(self.b_hp, self.a_hp) * 0.0
             self.b_w, self.a_w = None, None
         elif profile == "silence_only":
             self.b_hp, self.a_hp = None, None
             self.b_w, self.a_w = None, None
         elif profile == "ai_rnnoise":
             self.b_hp, self.a_hp = signal.butter(2, 60.0 / (sr/2), btype='highpass')
-            self.zi_hp = signal.lfilter_zi(self.b_hp, self.a_hp)
+            self.zi_hp = signal.lfilter_zi(self.b_hp, self.a_hp) * 0.0
             self.b_w, self.a_w = None, None
         else:
             self.b_hp, self.a_hp = signal.butter(2, 75.0 / (sr/2), btype='highpass')
-            self.zi_hp = signal.lfilter_zi(self.b_hp, self.a_hp)
+            self.zi_hp = signal.lfilter_zi(self.b_hp, self.a_hp) * 0.0
             self.b_w, self.a_w = biquad_shelf(+1.5, 180.0, True, sr)
-            self.zi_w = signal.lfilter_zi(self.b_w, self.a_w)
+            self.zi_w = signal.lfilter_zi(self.b_w, self.a_w) * 0.0
 
     def process_chunk(self, chunk: np.ndarray) -> np.ndarray:
         if len(chunk) == 0:
@@ -1636,7 +1642,7 @@ def process_vocal_restoration_file(
     )
     ai_suppressor = AIRNNoiseSuppressor(sr=sr, strength=ai_denoise_strength) if apply_ai_denoise else None
 
-    gate_hold_ms = 600.0 if profile == "t6_laptop_fan" else (500.0 if profile == "t1_room_echo" else hold_ms)
+    gate_hold_ms = 600.0 if profile in ("t6_laptop_fan", "t1_room_echo") else hold_ms
     silence_gate = DialogueSafeSilenceGate(
         sr=sr,
         open_thresh_db=open_thresh_db,
@@ -1693,17 +1699,17 @@ def process_vocal_restoration_file(
             # 1. Restorative EQ + Soft Tanh Limiter
             y_tuned = restorer.process_chunk(chunk)
 
-            # 2. Dialogue Silence Gate (removes pauses/reflections before AI denoise)
-            if silence_gate is not None:
-                y_gated = silence_gate.process_chunk(y_tuned, is_last=is_last)
+            # 2. RNNoise AI Denoise (operates on continuous acoustic audio; bypassed for echo/laptop profiles)
+            if ai_suppressor is not None and profile not in _AI_BYPASS_PROFILES:
+                y_denoised = ai_suppressor.process_chunk(y_tuned)
             else:
-                y_gated = y_tuned
+                y_denoised = y_tuned
 
-            # 3. RNNoise AI Denoise [END of chunk DSP]
-            if ai_suppressor is not None:
-                y_out = ai_suppressor.process_chunk(y_gated)
+            # 3. Dialogue Silence Gate (cuts pause noise to pure digital silence)
+            if silence_gate is not None:
+                y_out = silence_gate.process_chunk(y_denoised, is_last=is_last)
             else:
-                y_out = y_gated
+                y_out = y_denoised
 
             dst.write(y_out)
 
@@ -2505,7 +2511,7 @@ def process_automated_session(
             track_open_thresh = open_thresh_db
             track_close_thresh = open_thresh_db - 10.0
 
-        gate_hold_ms = 600.0 if profile_id == "t6_laptop_fan" else (500.0 if profile_id == "t1_room_echo" else hold_ms)
+        gate_hold_ms = 600.0 if profile_id in ("t6_laptop_fan", "t1_room_echo") else hold_ms
         silence_gate = DialogueSafeSilenceGate(
             sr=sr,
             open_thresh_db=track_open_thresh,
@@ -2558,14 +2564,14 @@ def process_automated_session(
                             break
                         processed_chunk, _ = gate_engine.process_chunk(raw_chunk)
                         is_last = (processed + len(processed_chunk) >= max_samples)
-                        if silence_gate:
-                            gated_chunk = silence_gate.process_chunk(processed_chunk, is_last=is_last)
-                        else:
-                            gated_chunk = processed_chunk
                         if ai_suppressor:
-                            final_chunk = ai_suppressor.process_chunk(gated_chunk)
+                            denoised = ai_suppressor.process_chunk(processed_chunk)
                         else:
-                            final_chunk = gated_chunk
+                            denoised = processed_chunk
+                        if silence_gate:
+                            final_chunk = silence_gate.process_chunk(denoised, is_last=is_last)
+                        else:
+                            final_chunk = denoised
                         write_sink(final_chunk)
 
                         processed += len(final_chunk)
@@ -2652,14 +2658,14 @@ def process_automated_session(
                             chunk = np.mean(chunk, axis=1)
                         is_last = (processed + len(chunk) >= max_samples)
                         tuned = restorer.process_chunk(chunk)
+                        if ai_suppressor and profile_id not in _AI_BYPASS_PROFILES:
+                            denoised = ai_suppressor.process_chunk(tuned)
+                        else:
+                            denoised = tuned
                         if silence_gate:
-                            gated_chunk = silence_gate.process_chunk(tuned, is_last=is_last)
+                            final_chunk = silence_gate.process_chunk(denoised, is_last=is_last)
                         else:
-                            gated_chunk = tuned
-                        if ai_suppressor:
-                            final_chunk = ai_suppressor.process_chunk(gated_chunk)
-                        else:
-                            final_chunk = gated_chunk
+                            final_chunk = denoised
                         write_sink(final_chunk)
 
 
@@ -2761,7 +2767,7 @@ def process_automated_session(
         # Silence gate — per-thread instance (stateful, cannot be shared).
         # Profiles with short burst speaking patterns get a longer hold to prevent
         # the gate cycling on normal conversational pauses between bursts.
-        gate_hold_ms = 600.0 if profile_id == "t6_laptop_fan" else (500.0 if profile_id == "t1_room_echo" else hold_ms)
+        gate_hold_ms = 600.0 if profile_id in ("t6_laptop_fan", "t1_room_echo") else hold_ms
         silence_gate = DialogueSafeSilenceGate(
             sr=sr,
             open_thresh_db=track_open_thresh,
@@ -2860,9 +2866,12 @@ def process_automated_session(
                         if chunk.ndim > 1: chunk = np.mean(chunk, axis=1)
                         is_last = (processed_s + len(chunk) >= max_samples)
                         tuned = restorer.process_chunk(chunk)
-                        gated = silence_gate.process_chunk(tuned, is_last=is_last) if silence_gate else tuned
-                        final_chunk = ai_suppressor.process_chunk(gated) if ai_suppressor else gated
-                        write_p(final_chunk)
+                        if ai_suppressor and profile_id not in _AI_BYPASS_PROFILES:
+                            denoised = ai_suppressor.process_chunk(tuned)
+                        else:
+                            denoised = tuned
+                        gated = silence_gate.process_chunk(denoised, is_last=is_last) if silence_gate else denoised
+                        write_p(gated)
 
                         processed_s += len(chunk)
                         pct = (processed_s / max_samples) * 100.0
