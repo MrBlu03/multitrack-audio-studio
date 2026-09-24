@@ -270,6 +270,21 @@ for i in range(4):
 check("Gate multi-chunk: no NaN/Inf across 4 chunks",
       all(np.isfinite(r).all() for r in results))
 
+# (e) Neural VAD gating test
+try:
+    gate_vad = mb.DialogueSafeSilenceGate(sr=SR, open_thresh_db=-50.0,
+                                          close_thresh_db=-58.0, hold_ms=600.0,
+                                          lookahead_ms=40.0, floor_db=-120.0,
+                                          vad_thresh=0.28)
+    sp_vad = _make_speech(duration=CHUNK_SEC, amp=0.3)
+    out_sp_vad = gate_vad.process_chunk(sp_vad.copy(), is_last=True)
+    check("Gate Neural VAD: passes active speech",
+          np.abs(out_sp_vad).max() > 1e-4, f"max={np.abs(out_sp_vad).max():.6f}")
+    check("Gate Neural VAD: preserves length and no NaN/Inf",
+          len(out_sp_vad) == len(sp_vad) and np.isfinite(out_sp_vad).all())
+except Exception as e:
+    check("Gate Neural VAD: runs without error", False, str(e))
+
 
 # ---------------------------------------------------------------------------
 # 7. BroadcastSpeechNormalizer

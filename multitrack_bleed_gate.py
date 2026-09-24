@@ -805,7 +805,8 @@ class DialogueSafeSilenceGate:
         hold_ms: float = 280.0,
         rel_ms: float = 120.0,
         lookahead_ms: float = 30.0,
-        floor_db: float = -120.0
+        floor_db: float = -120.0,
+        vad_thresh: float = 0.0
     ):
         self.sr = sr
         self.open_thresh_db = float(open_thresh_db)
@@ -814,6 +815,7 @@ class DialogueSafeSilenceGate:
         self.rel_ms = float(rel_ms)
         self.lookahead_ms = float(lookahead_ms)
         self.floor_db = float(floor_db)
+        self.vad_thresh = float(vad_thresh)
         self.is_digital_silence = (self.floor_db <= -90.0)
         self.floor_linear = 0.0 if self.is_digital_silence else (10.0 ** (self.floor_db / 20.0))
 
@@ -831,6 +833,41 @@ class DialogueSafeSilenceGate:
         self.cur_g = 0.0
         self.margin = self.win + self.lookahead_fr * self.hop
         self.prev_chunk = np.zeros(self.margin, dtype=np.float32)
+
+        # Streaming Neural VAD detector (RNNoise VAD)
+        self._vad_state = None
+        self._vad_lib = None
+        self._c_float_p = None
+        self._vad_buf = np.zeros(0, dtype=np.float32)
+        self._vad_hist_probs = np.zeros(10, dtype=np.float32)
+
+        if self.vad_thresh > 0.0 and self.sr == 48000:
+            dll_p = get_rnnoise_dll_path()
+            if dll_p and os.path.isfile(dll_p):
+                try:
+                    import ctypes
+                    self._vad_lib = ctypes.CDLL(dll_p)
+                    self._vad_lib.rnnoise_create.argtypes = [ctypes.c_void_p]
+                    self._vad_lib.rnnoise_create.restype = ctypes.c_void_p
+                    self._vad_lib.rnnoise_destroy.argtypes = [ctypes.c_void_p]
+                    self._vad_lib.rnnoise_process_frame.argtypes = [
+                        ctypes.c_void_p,
+                        ctypes.POINTER(ctypes.c_float),
+                        ctypes.POINTER(ctypes.c_float),
+                    ]
+                    self._vad_lib.rnnoise_process_frame.restype = ctypes.c_float
+                    self._c_float_p = ctypes.POINTER(ctypes.c_float)
+                    self._vad_state = self._vad_lib.rnnoise_create(None)
+                except Exception:
+                    self._vad_state = None
+
+    def __del__(self):
+        if getattr(self, '_vad_state', None) is not None and getattr(self, '_vad_lib', None) is not None:
+            try:
+                self._vad_lib.rnnoise_destroy(self._vad_state)
+            except Exception:
+                pass
+            self._vad_state = None
 
     def process_chunk(self, chunk: np.ndarray, is_last: bool = False) -> np.ndarray:
         if len(chunk) == 0:
@@ -854,11 +891,35 @@ class DialogueSafeSilenceGate:
         rms     = np.sqrt(np.mean(frames.astype(np.float64)**2, axis=1)).astype(np.float32)
         rms_db  = 20.0 * np.log10(rms + 1e-9)
 
+        # Neural VAD probability tracking across frames (suppresses typing & room clatter)
+        vad_mask = np.ones(n_fr, dtype=bool)
+        if self._vad_state is not None and self.vad_thresh > 0.0:
+            x_vad = np.concatenate([self._vad_buf, chunk])
+            n_vfr = len(x_vad) // 480
+            old_hist_len = len(self._vad_hist_probs)
+            if n_vfr > 0:
+                new_v = np.zeros(n_vfr, dtype=np.float32)
+                for vi in range(n_vfr):
+                    f = (x_vad[vi*480 : (vi+1)*480] * 32767.0).copy()
+                    ptr = f.ctypes.data_as(self._c_float_p)
+                    new_v[vi] = self._vad_lib.rnnoise_process_frame(self._vad_state, ptr, ptr)
+                self._vad_buf = x_vad[n_vfr * 480 :].copy()
+                v_stream = np.concatenate([self._vad_hist_probs, new_v])
+                self._vad_hist_probs = v_stream[-10:].copy()
+            else:
+                self._vad_buf = x_vad
+                v_stream = self._vad_hist_probs
+
+            v_times = (np.arange(len(v_stream)) - old_hist_len) * 480 + 240
+            fr_centers_rel = (np.arange(n_fr) * self.hop + self.win // 2) - self.margin
+            vad_interp = np.interp(fr_centers_rel, v_times, v_stream, left=0.0, right=v_stream[-1])
+            vad_mask = (vad_interp >= self.vad_thresh)
+
         # Hysteresis trigger — stateful, must stay as a loop
         raw_trigger = np.zeros(n_fr, dtype=bool)
         for i in range(n_fr):
             if not self.is_open:
-                if rms_db[i] > self.open_thresh_db:
+                if rms_db[i] > self.open_thresh_db and vad_mask[i]:
                     self.is_open = True
                     raw_trigger[i] = True
             else:
@@ -1643,15 +1704,20 @@ def process_vocal_restoration_file(
     ai_suppressor = AIRNNoiseSuppressor(sr=sr, strength=ai_denoise_strength) if apply_ai_denoise else None
 
     gate_hold_ms = 600.0 if profile in ("t6_laptop_fan", "t1_room_echo") else hold_ms
+    gate_lookahead_ms = 40.0 if profile == "t6_laptop_fan" else 30.0
+    gate_vad_thresh = 0.28 if profile == "t6_laptop_fan" else 0.0
     silence_gate = DialogueSafeSilenceGate(
         sr=sr,
         open_thresh_db=open_thresh_db,
         close_thresh_db=open_thresh_db - 10.0,
         hold_ms=gate_hold_ms,
         rel_ms=120.0,
-        lookahead_ms=30.0,
-        floor_db=silence_floor_db
+        lookahead_ms=gate_lookahead_ms,
+        floor_db=silence_floor_db,
+        vad_thresh=gate_vad_thresh
     ) if apply_silence_gate else None
+    if silence_gate and gate_vad_thresh > 0.0 and silence_gate._vad_state is not None:
+        log_func("    🧠 Neural VAD Silence Gate: ACTIVE (suppressing keyboard typing & room clatter)")
 
     is_mp3 = export_format.lower().endswith("mp3") or output_path.lower().endswith(".mp3")
     final_output_path = output_path
@@ -2400,7 +2466,7 @@ def process_automated_session(
         c_plyr = re.sub(r'[^a-zA-Z0-9_\-]', '', plyr.replace(' ', '_')) if plyr and plyr != "-" else ""
 
         if c_plyr and c_plyr.lower() not in base.lower():
-            if re.match(r'^(?:track|ch|slot|audio_track|audiotrack)[_\-\s]*0?(\d+)$', base, re.IGNORECASE):
+            if re.match(r'^(?:track|ch|slot|audio[_\-\s]*track|audiotrack)[_\-\s]*[a-z]?0?(\d+)$', base, re.IGNORECASE):
                 stem_name = f"Track_{s_num:02d}_{c_plyr}"
             else:
                 stem_name = f"{base}_{c_plyr}"
@@ -2512,15 +2578,20 @@ def process_automated_session(
             track_close_thresh = open_thresh_db - 10.0
 
         gate_hold_ms = 600.0 if profile_id in ("t6_laptop_fan", "t1_room_echo") else hold_ms
+        gate_lookahead_ms = 40.0 if profile_id == "t6_laptop_fan" else 30.0
+        gate_vad_thresh = 0.28 if profile_id == "t6_laptop_fan" else 0.0
         silence_gate = DialogueSafeSilenceGate(
             sr=sr,
             open_thresh_db=track_open_thresh,
             close_thresh_db=track_close_thresh,
             hold_ms=gate_hold_ms,
             rel_ms=120.0,
-            lookahead_ms=30.0,
-            floor_db=silence_floor_db
+            lookahead_ms=gate_lookahead_ms,
+            floor_db=silence_floor_db,
+            vad_thresh=gate_vad_thresh
         ) if apply_silence_gate else None
+        if silence_gate and gate_vad_thresh > 0.0 and silence_gate._vad_state is not None:
+            log_func("    🧠 Neural VAD Silence Gate: ACTIVE (suppressing keyboard typing & room clatter)")
 
         chunk_samples = int(chunk_sec * sr)
         processed = 0
@@ -2768,15 +2839,20 @@ def process_automated_session(
         # Profiles with short burst speaking patterns get a longer hold to prevent
         # the gate cycling on normal conversational pauses between bursts.
         gate_hold_ms = 600.0 if profile_id in ("t6_laptop_fan", "t1_room_echo") else hold_ms
+        gate_lookahead_ms = 40.0 if profile_id == "t6_laptop_fan" else 30.0
+        gate_vad_thresh = 0.28 if profile_id == "t6_laptop_fan" else 0.0
         silence_gate = DialogueSafeSilenceGate(
             sr=sr,
             open_thresh_db=track_open_thresh,
             close_thresh_db=track_close_thresh,
             hold_ms=gate_hold_ms,
             rel_ms=120.0,
-            lookahead_ms=30.0,
-            floor_db=silence_floor_db
+            lookahead_ms=gate_lookahead_ms,
+            floor_db=silence_floor_db,
+            vad_thresh=gate_vad_thresh
         ) if apply_silence_gate else None
+        if silence_gate and gate_vad_thresh > 0.0 and silence_gate._vad_state is not None:
+            _safe_log("    🧠 Neural VAD Silence Gate: ACTIVE (suppressing keyboard typing & room clatter)")
 
         ai_suppressor = AIRNNoiseSuppressor(sr=sr, strength=ai_denoise_strength) if apply_ai_denoise else None
 
