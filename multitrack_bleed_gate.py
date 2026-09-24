@@ -660,8 +660,8 @@ class LaptopMicEnhancer:
         self,
         sr: int = 48000,
         noise_mag: Optional[np.ndarray] = None,
-        alpha: float = 0.7,
-        floor_db: float = -18.0,
+        alpha: float = 0.35,
+        floor_db: float = -12.0,
         desk_cut_db: float = -5.0,
         hollow_cut_db: float = -3.5,
         warmth_db: float = 2.5,
@@ -683,20 +683,20 @@ class LaptopMicEnhancer:
 
         # 1. 85 Hz High-Pass
         self.b_hp, self.a_hp = signal.butter(3, 85.0 / (sr / 2), btype='highpass')
-        self.zi_hp = signal.lfilter_zi(self.b_hp, self.a_hp)
+        self.zi_hp = signal.lfilter_zi(self.b_hp, self.a_hp) * 0.0
 
         # 2. Parametric EQ
         self.b_ls, self.a_ls = biquad_shelf(warmth_db, 160.0, True, sr)
-        self.zi_ls = signal.lfilter_zi(self.b_ls, self.a_ls)
+        self.zi_ls = signal.lfilter_zi(self.b_ls, self.a_ls) * 0.0
 
         self.b_n1, self.a_n1 = biquad_peaking(desk_cut_db, 340.0, 1.2, sr)
-        self.zi_n1 = signal.lfilter_zi(self.b_n1, self.a_n1)
+        self.zi_n1 = signal.lfilter_zi(self.b_n1, self.a_n1) * 0.0
 
         self.b_n2, self.a_n2 = biquad_peaking(hollow_cut_db, 850.0, 1.6, sr)
-        self.zi_n2 = signal.lfilter_zi(self.b_n2, self.a_n2)
+        self.zi_n2 = signal.lfilter_zi(self.b_n2, self.a_n2) * 0.0
 
         self.b_hs, self.a_hs = biquad_shelf(presence_db, 3400.0, False, sr)
-        self.zi_hs = signal.lfilter_zi(self.b_hs, self.a_hs)
+        self.zi_hs = signal.lfilter_zi(self.b_hs, self.a_hs) * 0.0
 
         # STFT guard margin buffer
         self.prev_tail = np.zeros(self.margin, dtype=np.float32)
@@ -824,7 +824,7 @@ class DialogueSafeSilenceGate:
         self.rel_fr = max(1, int((self.rel_ms / 1000.0) / (self.hop / sr)))
 
         self.b_det, self.a_det = signal.butter(2, [100.0 / (sr / 2), min(0.999, 6000.0 / (sr / 2))], btype='bandpass')
-        self.zi_det = signal.lfilter_zi(self.b_det, self.a_det)
+        self.zi_det = signal.lfilter_zi(self.b_det, self.a_det) * 0.0
 
         self.is_open = False
         self.h_c = 0
@@ -1636,8 +1636,7 @@ def process_vocal_restoration_file(
     )
     ai_suppressor = AIRNNoiseSuppressor(sr=sr, strength=ai_denoise_strength) if apply_ai_denoise else None
 
-    _LONG_HOLD_PROFILES = {"t6_laptop_fan", "t1_room_echo"}
-    gate_hold_ms = 500.0 if profile in _LONG_HOLD_PROFILES else hold_ms
+    gate_hold_ms = 600.0 if profile == "t6_laptop_fan" else (500.0 if profile == "t1_room_echo" else hold_ms)
     silence_gate = DialogueSafeSilenceGate(
         sr=sr,
         open_thresh_db=open_thresh_db,
@@ -2506,8 +2505,7 @@ def process_automated_session(
             track_open_thresh = open_thresh_db
             track_close_thresh = open_thresh_db - 10.0
 
-        _LONG_HOLD_PROFILES = {"t6_laptop_fan", "t1_room_echo"}
-        gate_hold_ms = 500.0 if profile_id in _LONG_HOLD_PROFILES else hold_ms
+        gate_hold_ms = 600.0 if profile_id == "t6_laptop_fan" else (500.0 if profile_id == "t1_room_echo" else hold_ms)
         silence_gate = DialogueSafeSilenceGate(
             sr=sr,
             open_thresh_db=track_open_thresh,
@@ -2589,8 +2587,8 @@ def process_automated_session(
                 enhancer = LaptopMicEnhancer(
                     sr=sr,
                     noise_mag=noise_mag,
-                    alpha=0.7,
-                    floor_db=-18.0,
+                    alpha=0.35,
+                    floor_db=-12.0,
                     desk_cut_db=-5.0,
                     hollow_cut_db=-3.5,
                     warmth_db=2.5,
@@ -2615,11 +2613,11 @@ def process_automated_session(
                             gated_chunk = silence_gate.process_chunk(enhanced, is_last=is_last)
                         else:
                             gated_chunk = enhanced
-                        if ai_suppressor:
-                            final_chunk = ai_suppressor.process_chunk(gated_chunk)
-                        else:
-                            final_chunk = gated_chunk
-                        write_sink(final_chunk)
+                        # Note: t6_laptop_fan bypasses ai_suppressor (RNNoise) because RNNoise's
+                        # close-mic GRU classifies distant laptop mic consonants/interjections as noise
+                        # and swallows quiet syllables. LaptopMicEnhancer + DialogueSafeSilenceGate
+                        # already eliminates stationary fan drone and achieves pure digital silence in pauses.
+                        write_sink(gated_chunk)
 
                         processed += len(chunk)
                         pct = (processed / max_samples) * 100.0
@@ -2763,8 +2761,7 @@ def process_automated_session(
         # Silence gate — per-thread instance (stateful, cannot be shared).
         # Profiles with short burst speaking patterns get a longer hold to prevent
         # the gate cycling on normal conversational pauses between bursts.
-        _LONG_HOLD_PROFILES = {"t6_laptop_fan", "t1_room_echo"}
-        gate_hold_ms = 500.0 if profile_id in _LONG_HOLD_PROFILES else hold_ms
+        gate_hold_ms = 600.0 if profile_id == "t6_laptop_fan" else (500.0 if profile_id == "t1_room_echo" else hold_ms)
         silence_gate = DialogueSafeSilenceGate(
             sr=sr,
             open_thresh_db=track_open_thresh,
@@ -2818,8 +2815,8 @@ def process_automated_session(
             if profile_id == "t6_laptop_fan":
                 _safe_log("    Profiling laptop fan motor & chassis noise...")
                 noise_mag = calibrate_laptop_fan_noise(in_path, sr=sr)
-                enhancer  = LaptopMicEnhancer(sr=sr, noise_mag=noise_mag, alpha=0.7,
-                                              floor_db=-18.0, desk_cut_db=-5.0,
+                enhancer  = LaptopMicEnhancer(sr=sr, noise_mag=noise_mag, alpha=0.35,
+                                              floor_db=-12.0, desk_cut_db=-5.0,
                                               hollow_cut_db=-3.5, warmth_db=2.5, presence_db=1.5,
                                               expander_thresh_db=min(-38.0, track_open_thresh - 4.0))
                 src_p = sf.SoundFile(in_path, mode='r')
@@ -2833,8 +2830,11 @@ def process_automated_session(
                         is_last = (processed_s + len(chunk) >= max_samples)
                         enhanced = enhancer.process_chunk(chunk, is_last=is_last)
                         gated = silence_gate.process_chunk(enhanced, is_last=is_last) if silence_gate else enhanced
-                        final_chunk = ai_suppressor.process_chunk(gated) if ai_suppressor else gated
-                        write_p(final_chunk)
+                        # Note: t6_laptop_fan bypasses ai_suppressor (RNNoise) because RNNoise's
+                        # close-mic GRU classifies distant laptop mic consonants/interjections as noise
+                        # and swallows quiet syllables. LaptopMicEnhancer + DialogueSafeSilenceGate
+                        # already eliminates stationary fan drone and achieves pure digital silence in pauses.
+                        write_p(gated)
                         processed_s += len(chunk)
                         pct = (processed_s / max_samples) * 100.0
                         elapsed = time.time() - t_track_start
