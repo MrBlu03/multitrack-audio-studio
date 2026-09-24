@@ -259,11 +259,17 @@ async function toggleSlotActive(slot, active) {
 }
 
 async function updateSettings() {
+  const modelVal = document.getElementById('selectModel').value;
+  const valModelEl = document.getElementById('valModel');
+  if (valModelEl) {
+    valModelEl.textContent = modelVal.startsWith('large') ? 'Large-v3 (Default)' : modelVal.toUpperCase();
+  }
+
   const payload = {
     export_format: document.getElementById('selectFormat').value,
     target_lufs: parseFloat(document.getElementById('sliderLufs').value),
     ai_denoise_strength: parseFloat(document.getElementById('sliderAi').value) / 100.0,
-    whisper_model: document.getElementById('selectModel').value,
+    whisper_model: modelVal,
     merge_gap: parseFloat(document.getElementById('selectGap').value),
     transcribe_prompt: document.getElementById('inputPrompt').value,
     enable_moderation: document.getElementById('checkModeration').checked,
@@ -609,8 +615,30 @@ function renderUI() {
     }
   }
 
+  // Sync Whisper Model selector to appState
+  if (appState.whisper_model) {
+    const selModel = document.getElementById('selectModel');
+    if (selModel && document.activeElement !== selModel) {
+      selModel.value = appState.whisper_model;
+      const valModelEl = document.getElementById('valModel');
+      if (valModelEl) {
+        valModelEl.textContent = appState.whisper_model.startsWith('large') ? 'Large-v3 (Default)' : appState.whisper_model.toUpperCase();
+      }
+    }
+  }
+
   // 5. Render Transcription Speaker Matrix
   renderTranscribeSlots();
+}
+
+async function clearSingleSlot(slot) {
+  try {
+    const res = await fetch(`/api/clear-slot/${slot}`, { method: 'POST' });
+    appState = await res.json();
+    renderUI();
+  } catch (e) {
+    console.error(`Clear slot ${slot} error:`, e);
+  }
 }
 
 function renderTranscribeSlots() {
@@ -618,9 +646,11 @@ function renderTranscribeSlots() {
   if (!tGrid || !appState) return;
   tGrid.innerHTML = '';
 
+  let mappedCount = 0;
   for (let s = 1; s <= 6; s++) {
     const slot = appState.slots[s];
     if (!slot) continue;
+    if (slot.path) mappedCount++;
 
     const strip = document.createElement('div');
     strip.className = `channel-strip ${slot.path ? 'has-audio' : ''} ${!slot.active ? 'disabled' : ''}`;
@@ -632,20 +662,28 @@ function renderTranscribeSlots() {
           <span class="ch-name">${slot.player}</span>
           ${slot.character ? `<span class="ch-char-tag">${slot.character}</span>` : ''}
         </div>
-        <button class="mute-btn ${slot.active ? 'active' : 'muted'}" onclick="toggleSlotActive(${s}, ${!slot.active})">
-          ${slot.active ? 'ON' : 'M'}
-        </button>
+        <div style="display: flex; gap: 4px; align-items: center;">
+          ${slot.path ? `<button class="btn btn-outline" style="height: 18px; padding: 0 5px; font-size: 10px; color: var(--text-muted);" title="Clear track for Speaker ${s}" onclick="event.stopPropagation(); clearSingleSlot(${s})">✕</button>` : ''}
+          <button class="mute-btn ${slot.active ? 'active' : 'muted'}" onclick="toggleSlotActive(${s}, ${!slot.active})">
+            ${slot.active ? 'ON' : 'M'}
+          </button>
+        </div>
       </div>
       <div class="strip-body">
-        <div class="strip-file-area" onclick="browseSingleFile(${s})">
+        <div class="strip-file-area" onclick="browseSingleFile(${s})" title="Click to browse & map audio file for Speaker 0${s}">
           <div class="strip-file-row">
-            <span class="file-text ${slot.filename ? '' : 'empty'}">${slot.filename || 'No audio mapped'}</span>
+            <span class="file-text ${slot.filename ? '' : 'empty'}">${slot.filename || '+ Click to map audio...'}</span>
             <span class="file-duration">${slot.duration_sec > 0 ? formatSec(slot.duration_sec) : '--:--'}</span>
           </div>
         </div>
       </div>
     `;
     tGrid.appendChild(strip);
+  }
+
+  const countTag = document.getElementById('transcribeTrackCountTag');
+  if (countTag) {
+    countTag.textContent = `${mappedCount} Mapped`;
   }
 }
 
@@ -750,64 +788,63 @@ function setupDragAndDrop() {
     e.preventDefault();
   }, false);
   window.addEventListener('drop', (e) => {
-    if (!e.target.closest('#sessionBar')) {
+    if (!e.target.closest('.session-bar') && !e.target.closest('.channels-grid')) {
       e.preventDefault();
     }
   }, false);
 
-  const bar = document.getElementById('sessionBar');
-  if (!bar) return;
+  const dropTargets = document.querySelectorAll('.session-bar, .channels-grid');
+  dropTargets.forEach(bar => {
+    ['dragenter', 'dragover'].forEach(name => {
+      bar.addEventListener(name, (e) => {
+        e.preventDefault();
+        bar.classList.add('drag-over');
+      }, false);
+    });
 
-  ['dragenter', 'dragover'].forEach(name => {
-    bar.addEventListener(name, (e) => {
-      e.preventDefault();
-      bar.classList.add('drag-over');
-    }, false);
-  });
+    ['dragleave', 'drop'].forEach(name => {
+      bar.addEventListener(name, (e) => {
+        e.preventDefault();
+        bar.classList.remove('drag-over');
+      }, false);
+    });
 
-  ['dragleave', 'drop'].forEach(name => {
-    bar.addEventListener(name, (e) => {
+    bar.addEventListener('drop', async (e) => {
       e.preventDefault();
       bar.classList.remove('drag-over');
-    }, false);
-  });
 
-  bar.addEventListener('drop', async (e) => {
-    e.preventDefault();
-    bar.classList.remove('drag-over');
+      const files = e.dataTransfer.files;
+      if (files && files.length > 0) {
+        const firstFile = files[0];
+        const videoExts = ['.mkv', '.mp4', '.mov', '.webm', '.avi', '.m4v'];
+        const isVideo = videoExts.some(ext => firstFile.name.toLowerCase().endsWith(ext));
 
-    const files = e.dataTransfer.files;
-    if (files && files.length > 0) {
-      const firstFile = files[0];
-      const videoExts = ['.mkv', '.mp4', '.mov', '.webm', '.avi', '.m4v'];
-      const isVideo = videoExts.some(ext => firstFile.name.toLowerCase().endsWith(ext));
-
-      if (firstFile.path) {
-        if (isVideo) {
-          try {
-            document.getElementById('dockStatusText').textContent = `[INGESTING 4K VIDEO] ${firstFile.name}...`;
-            const res = await fetch('/api/ingest-video', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ video_path: firstFile.path })
-            });
-            const data = await res.json();
-            if (data && data.state) {
-              appState = data.state;
-              renderUI();
+        if (firstFile.path) {
+          if (isVideo) {
+            try {
+              document.getElementById('dockStatusText').textContent = `[INGESTING 4K VIDEO] ${firstFile.name}...`;
+              const res = await fetch('/api/ingest-video', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ video_path: firstFile.path })
+              });
+              const data = await res.json();
+              if (data && data.state) {
+                appState = data.state;
+                renderUI();
+              }
+              return;
+            } catch (err) {
+              console.error('Video drop ingest error:', err);
             }
-            return;
-          } catch (err) {
-            console.error('Video drop ingest error:', err);
           }
-
+        } else if (isVideo) {
+          browseVideo();
+          return;
         }
-      } else if (isVideo) {
-        browseVideo();
-        return;
       }
-    }
-    browseFolder();
+      browseFolder();
+    });
   });
 }
 

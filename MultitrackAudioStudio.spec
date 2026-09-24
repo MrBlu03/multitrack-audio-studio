@@ -94,6 +94,17 @@ a = Analysis(
     noarchive=False,
     optimize=0,
 )
+
+# Strip ancient VC++ runtime DLLs from AdoptOpenJDK / OpenJDK that cause 0xc0000005 crashes
+a.binaries = [b for b in a.binaries if "openjdk" not in b[1].lower() and "adoptopenjdk" not in b[1].lower()]
+
+# Explicitly bundle modern Visual C++ 2022+ runtime from C:\Windows\System32
+sys32 = r"C:\Windows\System32"
+for vc_dll in ["msvcp140.dll", "vcruntime140.dll", "vcruntime140_1.dll", "msvcp140_1.dll", "msvcp140_2.dll"]:
+    src_p = os.path.join(sys32, vc_dll)
+    if os.path.isfile(src_p):
+        a.binaries.insert(0, (vc_dll, src_p, "BINARY"))
+
 pyz = PYZ(a.pure)
 
 exe = EXE(

@@ -199,14 +199,15 @@
         <div class="control-field">
           <div class="field-label-row">
             <span class="field-label">Whisper Model</span>
-            <span class="field-metric" id="valModel">Small (Recommended)</span>
+            <span class="field-metric" id="valModel">Large-v3 (Default)</span>
           </div>
           <select class="input-select" id="selectModel" onchange="updateSettings()">
-            <option value="tiny">Tiny (Fastest, ~1GB VRAM)</option>
-            <option value="base">Base (Fast, ~1.5GB VRAM)</option>
-            <option value="small" selected>Small (Recommended — High Accuracy, ~2GB VRAM)</option>
+            <option value="large-v3" selected>Large-v3 (Default — Maximum Accuracy, ~10GB VRAM / 6GB RAM)</option>
+            <option value="large-v3-turbo">Large-v3 Turbo (Ultra-Fast, High Accuracy, ~6GB VRAM)</option>
             <option value="medium">Medium (Studio Broadcast Quality, ~5GB VRAM)</option>
-            <option value="large-v3">Large-v3 (Maximum Accuracy, ~10GB VRAM)</option>
+            <option value="small">Small (Fast, ~2GB VRAM)</option>
+            <option value="base">Base (Very Fast, ~1.5GB VRAM)</option>
+            <option value="tiny">Tiny (Fastest, ~1GB VRAM)</option>
           </select>
         </div>
 
@@ -245,13 +246,43 @@
         </div>
       </div>
 
-      <!-- Speaker Matrix -->
-      <div class="rack-header" style="margin-top: 6px;">
-        <span class="rack-title">Speaker Channels For Transcription</span>
-        <button class="btn btn-outline" id="btnImportFromMaster" onclick="sendMasteredToTranscribe()" style="height: 24px; font-size: 11px; padding: 0 10px;">
-          <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-          Import Mastered Stems
-        </button>
+      <!-- Speaker Matrix Header & Ingestion Toolbar -->
+      <div class="session-bar" style="margin-top: 10px; margin-bottom: 10px;">
+        <div class="session-bar-left">
+          <div class="session-icon-box">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+              <line x1="12" y1="19" x2="12" y2="23"/>
+              <line x1="8" y1="23" x2="16" y2="23"/>
+            </svg>
+          </div>
+          <div class="session-details">
+            <div class="session-title-row">
+              <span class="session-title">Speaker Channels For Transcription</span>
+              <span class="version-tag" id="transcribeTrackCountTag">0 Mapped</span>
+            </div>
+            <span class="session-path">Import mastered stems, select session audio files, or map individual speaker channels below</span>
+          </div>
+        </div>
+
+        <div class="session-bar-actions">
+          <button class="btn btn-secondary" onclick="browseFolder()" title="Select a folder of multitrack audio to map into transcription rack">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            Open Folder
+          </button>
+          <button class="btn btn-outline" onclick="browseFiles()" title="Multi-select audio files to map directly into transcription rack">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13M9 9l12-2M6 18a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM18 16a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/></svg>
+            Select Stems
+          </button>
+          <button class="btn btn-primary" id="btnImportFromMaster" onclick="sendMasteredToTranscribe()" style="font-size: 11px;" title="Bring finished audio files from Mastered output folder into transcription matrix">
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
+            Import Mastered Stems
+          </button>
+          <button class="btn btn-outline" onclick="clearSlots()" title="Clear all mapped tracks in the rack">
+            Clear Rack
+          </button>
+        </div>
       </div>
       <div class="channels-grid" id="transcribeSlotsGrid">
         <!-- Rendered dynamically via app.js -->

@@ -112,8 +112,8 @@ class SessionState:
         self.apply_normalization = True
         self.target_lufs = -18.0
         
-        # Transcriber Settings
-        self.whisper_model = "small"
+        # Transcriber Settings (Default to large-v3 for maximum accuracy)
+        self.whisper_model = "large-v3"
         self.merge_gap = 1.2
         self.enable_moderation = True
         self.transcribe_prompt = self.config["prompt"]
@@ -615,6 +615,15 @@ def clear_slots():
     return get_state()
 
 
+@app.post("/api/clear-slot/{slot}")
+def clear_single_slot(slot: int):
+    if slot in state.auto_slots:
+        state.auto_slots[slot]["path"] = ""
+        state.auto_slots[slot]["filename"] = ""
+        log_broadcast(f"[*] Cleared audio track from Slot {slot}.")
+    return get_state()
+
+
 @app.post("/api/open-output")
 def open_output():
     target = state.last_output_file or state.output_dir
@@ -904,8 +913,8 @@ def start_transcribe(req: StartMasterReq):
         try:
             transcriber = MultitrackTranscriber(
                 model_size=state.whisper_model,
-                device="cuda" if _CUDA_AVAILABLE else "cpu",
-                compute_type="float16" if _CUDA_AVAILABLE else "int8",
+                device="auto",
+                compute_type="default",
             )
             
             res = transcriber.transcribe_multitrack_session(
