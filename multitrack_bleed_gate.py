@@ -1290,6 +1290,13 @@ class AIRNNoiseSuppressor:
                 self._state = None
                 print(f"[-] Warning: Failed to load RNNoise: {e}")
 
+        # Delay compensation buffer: RNNoise has an algorithmic latency of exactly
+        # 2 frames (960 samples @ 48kHz = 20ms: 1 frame lookahead + 1 frame overlap-add synthesis).
+        # To avoid comb filtering and artificial room reverb when blending wet/dry,
+        # the dry signal must be delayed by the exact same amount.
+        self.delay_samples = int(round(960 * self.sr / self.SAMPLE_RATE))
+        self.dry_fifo = np.zeros(self.delay_samples, dtype=np.float32)
+
     def __del__(self):
         if self._lib is not None and self._state is not None:
             try:
@@ -1305,12 +1312,19 @@ class AIRNNoiseSuppressor:
     def process_chunk(self, chunk: np.ndarray) -> np.ndarray:
         """
         Process a 1D float32 audio chunk through the recurrent neural network.
-        Applies wet/dry strength blending.
+        Applies delay-compensated wet/dry strength blending to eliminate comb filtering.
         """
         if self._state is None or self.strength <= 0.0 or len(chunk) == 0:
             return chunk
 
         orig_len = len(chunk)
+        chunk_f32 = chunk.astype(np.float32)
+
+        # Buffer dry audio to perfectly phase-lock with RNNoise's 20ms algorithmic delay
+        all_dry = np.concatenate([self.dry_fifo, chunk_f32])
+        dry_aligned = all_dry[:orig_len]
+        self.dry_fifo = all_dry[orig_len:]
+
         if self.sr != self.SAMPLE_RATE:
             # resample_poly uses polyphase integer-ratio filtering — ~3× faster than
             # signal.resample (FFT-based) and uses far less memory on long chunks.
@@ -1320,7 +1334,7 @@ class AIRNNoiseSuppressor:
             dn  = self.sr          // g
             x   = resample_poly(chunk, up, dn).astype(np.float32)
         else:
-            x = chunk.astype(np.float32)
+            x = chunk_f32
 
         n_samples = len(x)
         pad_needed = (self.FRAME_SIZE - (n_samples % self.FRAME_SIZE)) % self.FRAME_SIZE
@@ -1357,7 +1371,7 @@ class AIRNNoiseSuppressor:
                 clean = np.pad(clean, (0, orig_len - len(clean)))
 
         if self.strength < 1.0:
-            return (1.0 - self.strength) * chunk + self.strength * clean
+            return (1.0 - self.strength) * dry_aligned + self.strength * clean
         return clean
 
 
