@@ -76,6 +76,7 @@ hiddenimports += [
     'uvicorn.lifespan.off',
     'web_server',
     'video_ingest',
+    'resolve_export',
 ]
 
 

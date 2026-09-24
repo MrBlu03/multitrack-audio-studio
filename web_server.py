@@ -49,6 +49,14 @@ from video_ingest import (
     VIDEO_EXTENSIONS,
 )
 
+# Import DaVinci Resolve timeline exporter
+from resolve_export import (
+    auto_generate_resolve_timelines,
+    generate_resolve_fcpxml,
+    generate_resolve_fcp7_xml,
+    RESOLVE_CAMERA_PRESETS,
+)
+
 
 # Import transcriber
 try:
@@ -122,6 +130,8 @@ class SessionState:
         self.is_processing = False
         self.is_cancelled = False
         self.last_output_file: Optional[str] = None
+        self.last_fcpxml_file: Optional[str] = None
+        self.last_xml_file: Optional[str] = None
         self.progress_percent = 0.0
         self.status_message = "Ready. Drop a 4K video, session folder, or select audio tracks."
         self.active_clients: List[WebSocket] = []
@@ -214,6 +224,11 @@ class VideoIngestReq(BaseModel):
 class VideoProbeReq(BaseModel):
     video_path: str
 
+class ResolveExportReq(BaseModel):
+    session_dir: Optional[str] = None
+    video_path: Optional[str] = None
+    campaign_mode: Optional[str] = None
+
 
 
 @app.get("/api/state")
@@ -243,6 +258,8 @@ def get_state():
         "progress_percent": state.progress_percent,
         "status_message": state.status_message,
         "last_output_file": state.last_output_file,
+        "last_fcpxml_file": state.last_fcpxml_file,
+        "last_xml_file": state.last_xml_file,
         "video_source_file": state.video_source_file,
         "video_streams_info": state.video_streams_info,
         "is_extracting_video": state.is_extracting_video,
@@ -675,6 +692,48 @@ def send_mastered_to_transcribe():
         return JSONResponse({"error": "No mastered stems or session tracks found to transcribe."}, status_code=400)
 
 
+@app.post("/api/export-resolve-timeline")
+def export_resolve_timeline_endpoint(req: Optional[ResolveExportReq] = None):
+    """
+    Generate DaVinci Resolve multicam timeline (.fcpxml & .xml)
+    with pre-cropped, scaled, and translated camera tracks + mastered stems.
+    """
+    session_dir = (req.session_dir if req and req.session_dir else None) or state.output_dir
+    if not session_dir:
+        for s, info in state.auto_slots.items():
+            if info.get("path") and os.path.isfile(info["path"]):
+                session_dir = os.path.dirname(info["path"])
+                break
+
+    if not session_dir or not os.path.exists(session_dir):
+        return JSONResponse({"error": "No valid session directory found. Load session files first."}, status_code=400)
+
+    if os.path.basename(os.path.normpath(session_dir)).lower() == "mastered":
+        mastered_dir = session_dir
+        session_dir = os.path.dirname(os.path.normpath(session_dir))
+    else:
+        mastered_candidate = os.path.join(session_dir, "Mastered")
+        mastered_dir = mastered_candidate if os.path.isdir(mastered_candidate) else session_dir
+
+    video_path = (req.video_path if req and req.video_path else None) or state.video_source_file or None
+    camp = (req.campaign_mode if req and req.campaign_mode else None) or state.campaign_mode
+
+    try:
+        res = auto_generate_resolve_timelines(
+            session_dir=session_dir,
+            mastered_dir=mastered_dir,
+            video_path=video_path,
+            campaign_mode=camp,
+            log_func=log_broadcast,
+        )
+        state.last_fcpxml_file = res.get("fcpxml")
+        state.last_xml_file = res.get("xml")
+        return {"status": "ok", "result": res, "state": get_state()}
+    except Exception as e:
+        log_broadcast(f"[-] Resolve timeline generation error: {e}")
+        return JSONResponse({"error": str(e)}, status_code=500)
+
+
 # ---------------------------------------------------------------------------
 # Background DSP Execution
 # ---------------------------------------------------------------------------
@@ -765,7 +824,30 @@ def start_master(req: StartMasterReq):
             else:
                 log_broadcast(f"\n🎉 MASTERING COMPLETE! All tracks exported in {elapsed:.1f}s")
                 state.last_output_file = out_dir
-                ws_emit_sync({"type": "finish", "success": True, "message": f"Mastering complete in {elapsed:.1f}s", "output": out_dir})
+
+                # Auto-generate DaVinci Resolve Multicam Timeline
+                try:
+                    session_dir = os.path.dirname(os.path.normpath(out_dir)) if os.path.basename(os.path.normpath(out_dir)).lower() == "mastered" else out_dir
+                    tl_res = auto_generate_resolve_timelines(
+                        session_dir=session_dir,
+                        mastered_dir=out_dir,
+                        video_path=state.video_source_file or None,
+                        campaign_mode=state.campaign_mode,
+                        log_func=log_broadcast,
+                    )
+                    state.last_fcpxml_file = tl_res.get("fcpxml")
+                    state.last_xml_file = tl_res.get("xml")
+                except Exception as ex:
+                    log_broadcast(f"[Resolve Exporter] Notice: Could not auto-generate timeline: {ex}")
+
+                ws_emit_sync({
+                    "type": "finish",
+                    "success": True,
+                    "message": f"Mastering complete in {elapsed:.1f}s",
+                    "output": out_dir,
+                    "fcpxml": state.last_fcpxml_file,
+                    "xml": state.last_xml_file,
+                })
         except Exception as e:
             log_broadcast(f"\n[-] Error during session mastering: {e}")
             ws_emit_sync({"type": "finish", "success": False, "message": str(e)})

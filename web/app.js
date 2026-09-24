@@ -89,6 +89,11 @@ function handleWsMessage(msg) {
         const btnSend = document.getElementById('btnSendToTranscribe');
         if (btnSend) btnSend.style.display = 'inline-flex';
       }
+      const btnResolve = document.getElementById('btnExportResolve');
+      if (btnResolve) btnResolve.style.display = 'inline-flex';
+      if (msg.fcpxml) {
+        appendConsole(`[RESOLVE] Multicam timeline generated: ${msg.fcpxml}`, 'info');
+      }
     } else {
       document.getElementById('dockStatusText').textContent = 'Processing failed: ' + (msg.message || 'Unknown error');
     }
@@ -586,6 +591,11 @@ function renderUI() {
   }
   document.getElementById('sessionSummaryText').textContent = `${activeCount} / 6 Channels Active (${appState.campaign_name})`;
 
+  const btnRes = document.getElementById('btnExportResolve');
+  if (btnRes) {
+    btnRes.style.display = (activeCount > 0 || appState.session_source_name || appState.last_fcpxml_file || appState.video_source_file) ? 'inline-flex' : 'none';
+  }
+
   // 5. Render Transcription Speaker Matrix
   renderTranscribeSlots();
 }
@@ -806,5 +816,37 @@ async function sendMasteredToTranscribe() {
     }
   } catch (err) {
     console.error('Send to transcribe error:', err);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// DaVinci Resolve Multicam Timeline Export
+// ---------------------------------------------------------------------------
+async function exportResolveTimeline() {
+  appendConsole('[RESOLVE] Generating DaVinci Resolve Multicam sequence (.fcpxml & .xml)...', 'info');
+  document.getElementById('dockStatusText').textContent = 'Generating DaVinci Resolve Multicam Timeline...';
+
+  try {
+    const res = await fetch('/api/export-resolve-timeline', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const data = await res.json();
+    if (res.ok && data.status === 'ok') {
+      const fcpxml = data.result.fcpxml;
+      const xml = data.result.xml;
+      appendConsole(`[+] FCPXML (v1.9) exported: ${fcpxml}`, 'info');
+      appendConsole(`[+] FCP 7 XML exported: ${xml}`, 'info');
+      document.getElementById('dockStatusText').textContent = 'DaVinci Timeline exported! Import via File > Import > Timeline...';
+      document.getElementById('btnOpenFolder').style.display = 'inline-flex';
+    } else {
+      const errMsg = data.error || 'Unknown error';
+      appendConsole(`[-] Timeline export failed: ${errMsg}`, 'error');
+      document.getElementById('dockStatusText').textContent = `Timeline export failed: ${errMsg}`;
+    }
+  } catch (err) {
+    console.error('Resolve export error:', err);
+    appendConsole(`[-] Timeline export network error: ${err.message}`, 'error');
   }
 }

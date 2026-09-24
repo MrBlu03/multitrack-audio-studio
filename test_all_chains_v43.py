@@ -605,6 +605,93 @@ except Exception as e:
 
 
 # ---------------------------------------------------------------------------
+# 14. DaVinci Resolve Multicam Sequence Generator (.fcpxml & .xml)
+# ---------------------------------------------------------------------------
+print("\n--- 14. DaVinci Resolve Timeline Exporter ---")
+try:
+    import resolve_export as re_exp
+    import xml.etree.ElementTree as ET
+
+    with tempfile.TemporaryDirectory() as td:
+        # Create dummy session directory with audio files
+        sess_dir = os.path.join(td, "Session_Test")
+        m_dir = os.path.join(sess_dir, "Mastered")
+        os.makedirs(m_dir, exist_ok=True)
+
+        dummy_audio = _make_speech(sr=SR, duration=2.0)
+        audio_map = {}
+        for slot in range(1, 7):
+            fn = f"Track_{slot}_Speaker.wav"
+            fp = os.path.join(m_dir, fn)
+            sf.write(fp, dummy_audio, SR)
+            audio_map[f"A{slot}"] = fp
+
+        # Test Cyberpunk RED presets
+        fcpxml_red = os.path.join(m_dir, "RED_Timeline.fcpxml")
+        xml_red = os.path.join(m_dir, "RED_Timeline.xml")
+
+        re_exp.generate_resolve_fcpxml(
+            video_path=None,
+            audio_tracks=audio_map,
+            output_path=fcpxml_red,
+            campaign_mode="red",
+            timeline_name="RED Test"
+        )
+        check("Cyberpunk RED FCPXML generated", os.path.isfile(fcpxml_red))
+
+        # Test SW5E with synthetic video
+        syn_vid_path = os.path.join(sess_dir, "Session_4K.mp4")
+        # generate dummy short video
+        cmd_v = [
+            "ffmpeg", "-y",
+            "-f", "lavfi", "-i", "color=c=black:s=3840x2160:r=30:d=1",
+            "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo",
+            "-t", "1", "-c:v", "libx264", "-c:a", "aac",
+            syn_vid_path
+        ]
+        startupinfo = None
+        if sys.platform == "win32":
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        subprocess.run(cmd_v, capture_output=True, check=True, startupinfo=startupinfo)
+
+        res_sw5e = re_exp.auto_generate_resolve_timelines(
+            session_dir=sess_dir,
+            mastered_dir=m_dir,
+            video_path=syn_vid_path,
+            campaign_mode="sw5e",
+            log_func=lambda s: None
+        )
+
+        check("auto_generate_resolve_timelines returned dict", isinstance(res_sw5e, dict))
+        check("SW5E FCPXML exists", os.path.isfile(res_sw5e["fcpxml"]))
+        check("SW5E FCP 7 XML exists", os.path.isfile(res_sw5e["xml"]))
+
+        # Parse generated FCPXML and verify 7 video layers and transform coordinates
+        tree = ET.parse(res_sw5e["fcpxml"])
+        root = tree.getroot()
+        transforms = root.findall(".//adjust-transform")
+        check("SW5E generated 7 video camera transform nodes", len(transforms) == 7)
+
+        # Verify Robin coordinates (Zoom: 3.0, X: 1920.00, Y: -1080.00)
+        v1_trans = transforms[0]
+        check("Robin scale is 3.00 3.00", v1_trans.attrib.get("scale") == "3.00 3.00")
+        check("Robin position is 1920.00 -1080.00", v1_trans.attrib.get("position") == "1920.00 -1080.00")
+
+        # Parse generated FCP 7 XML and verify tracks
+        tree_fcp7 = ET.parse(res_sw5e["xml"])
+        root_fcp7 = tree_fcp7.getroot()
+        v_tracks = root_fcp7.findall(".//video/track")
+        a_tracks = root_fcp7.findall(".//audio/track")
+        check("FCP 7 XML has 7 video tracks", len(v_tracks) == 7)
+        check("FCP 7 XML has 6 audio tracks", len(a_tracks) == 6)
+
+except Exception as e:
+    check("DaVinci Resolve Timeline Exporter raised no exception", False, str(e))
+    traceback.print_exc()
+
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 total = PASS + FAIL
