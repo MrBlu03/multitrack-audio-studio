@@ -380,11 +380,12 @@ class MultitrackTranscriber:
         if self._model is not None:
             return
 
-        # Check if an offline 'models' folder exists next to the executable or in the working directory
+        # Check if an offline 'models' folder exists next to the executable, in the working directory, or on Google Drive
         exe_dir = os.path.dirname(os.path.abspath(sys.argv[0]))
         search_dirs = [
             os.path.join(exe_dir, "models"),
             os.path.join(os.getcwd(), "models"),
+            r"G:\My Drive\Multitrack Audio Studio\models",
         ]
 
         target_model: str = self.model_size
