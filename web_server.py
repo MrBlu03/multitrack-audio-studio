@@ -108,7 +108,7 @@ class SessionState:
         self.export_format = "MP3 (320 kbps Broadcast)"
         self.apply_silence_gate = True
         self.apply_ai_denoise = True
-        self.ai_denoise_strength = 0.4
+        self.ai_denoise_strength = 1.0
         self.apply_normalization = True
         self.target_lufs = -18.0
         

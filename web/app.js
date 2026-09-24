@@ -596,6 +596,19 @@ function renderUI() {
     btnRes.style.display = (activeCount > 0 || appState.session_source_name || appState.last_fcpxml_file || appState.video_source_file) ? 'inline-flex' : 'none';
   }
 
+  // Sync AI Denoise slider to appState
+  if (appState.ai_denoise_strength !== undefined) {
+    const aiSlider = document.getElementById('sliderAi');
+    const aiLabel = document.getElementById('valAiStrength');
+    if (aiSlider && document.activeElement !== aiSlider) {
+      const pct = Math.round(appState.ai_denoise_strength * 100);
+      aiSlider.value = pct;
+      if (aiLabel) {
+        aiLabel.textContent = pct === 0 ? '0% (Disabled)' : `${pct}%`;
+      }
+    }
+  }
+
   // 5. Render Transcription Speaker Matrix
   renderTranscribeSlots();
 }
